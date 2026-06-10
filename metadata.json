@@ -1,0 +1,6 @@
+{
+  "name": "Atik Jalwa",
+  "description": "Ergonomic background job notification assistant for delivery and ride-sharing partners, featuring precise filtering and human-centric gestures.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
