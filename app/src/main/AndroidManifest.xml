@@ -42,7 +42,7 @@
 
         <!-- Custom Background Accessibility Service -->
         <service
-            android:name=".AtikJalwaAccessibilityService"
+            android:name=".DrClickerAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true">
             <intent-filter>

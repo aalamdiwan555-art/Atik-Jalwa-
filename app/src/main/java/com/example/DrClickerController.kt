@@ -10,11 +10,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-object AtikJalwaController {
-    private const val TAG = "AtikJalwaController"
-    private const val PREFS_NAME = "AtikJalwaPrefs"
+object DrClickerController {
+    private const val TAG = "DrClickerController"
+    private const val PREFS_NAME = "DrClickerPrefs"
 
-    // Preferences keys matching Module 3 specifications Exactly
+    // Preferences keys matching specifications
     private const val KEY_MIN_PRICE = "Min_Price"
     private const val KEY_MAX_PRICE = "Max_Price"
     private const val KEY_MAX_PICKUP_DIST = "Max_Pickup_Distance"
@@ -52,7 +52,7 @@ object AtikJalwaController {
     fun initialize(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         loadFilters()
-        logEvent("Atik Jalwa initialized with loaded filters", false)
+        logEvent("Dr.Clicker initialized with loaded filters", false)
     }
 
     private fun loadFilters() {

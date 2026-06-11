@@ -14,19 +14,19 @@ import kotlinx.coroutines.launch
 import java.util.Random
 import java.util.regex.Pattern
 
-class AtikJalwaAccessibilityService : AccessibilityService() {
+class DrClickerAccessibilityService : AccessibilityService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Default)
     private val handler = Handler(Looper.getMainLooper())
     private val random = Random()
 
     companion object {
-        private const val TAG = "AtikJalwaAccessibility"
+        private const val TAG = "DrClickerAccessibility"
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         // Only run scan loop if scanning active state is true
-        if (!AtikJalwaController.isScanning.value) return
+        if (!DrClickerController.isScanning.value) return
 
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
             event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
@@ -49,7 +49,7 @@ class AtikJalwaAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
-        AtikJalwaController.logEvent("Accessibility Service Interrupted by system", false)
+        DrClickerController.logEvent("Accessibility Service Interrupted by system", false)
     }
 
     /**
@@ -66,12 +66,12 @@ class AtikJalwaAccessibilityService : AccessibilityService() {
             node.getBoundsInScreen(bounds)
             list.add(
                 NodeInfoData(
-                    text = text ?: "",
-                    contentDescription = contentDesc ?: "",
-                    bounds = bounds,
-                    nodeId = node.hashCode(),
-                    isClickable = node.isClickable,
-                    className = node.className?.toString() ?: ""
+                     text = text ?: "",
+                     contentDescription = contentDesc ?: "",
+                     bounds = bounds,
+                     nodeId = node.hashCode(),
+                     isClickable = node.isClickable,
+                     className = node.className?.toString() ?: ""
                 )
             )
         }
@@ -161,10 +161,10 @@ class AtikJalwaAccessibilityService : AccessibilityService() {
             val pickupVal = detectedPickupKm ?: 1.0f // Fallback to 1km pickup proximity if missing
             val dropVal = detectedDropKm ?: 5.0f     // Fallback to 5.0km drop distance if missing
 
-            val minPrice = AtikJalwaController.minPrice.value
-            val maxPrice = AtikJalwaController.maxPrice.value
-            val maxPickup = AtikJalwaController.maxPickupDistance.value
-            val maxDrop = AtikJalwaController.maxDropDistance.value
+            val minPrice = DrClickerController.minPrice.value
+            val maxPrice = DrClickerController.maxPrice.value
+            val maxPickup = DrClickerController.maxPickupDistance.value
+            val maxDrop = DrClickerController.maxDropDistance.value
 
             // 4. MODULE 4 CONDITIONAL CHECK BLOCK
             val satisfiesFilters = (detectedFare >= minPrice) && 
@@ -173,7 +173,7 @@ class AtikJalwaAccessibilityService : AccessibilityService() {
                                    (dropVal <= maxDrop)
 
             if (satisfiesFilters) {
-                AtikJalwaController.logEvent(
+                DrClickerController.logEvent(
                     "MATCH FOUND! Card: Price ₹$detectedFare, Pickup ${pickupVal}KM, Ride ${dropVal}KM. Satisfies filters (Min: ₹$minPrice, Max: ${maxPickup}KM Pickup, ${maxDrop}KM Drop)",
                     true
                 )
@@ -187,12 +187,12 @@ class AtikJalwaAccessibilityService : AccessibilityService() {
                     if (generalClickable != null) {
                         triggerHumanlikeGesture(generalClickable)
                     } else {
-                        AtikJalwaController.logEvent("Match found but no clickable action element isolated on screen.", false)
+                        DrClickerController.logEvent("Match found but no clickable action element isolated on screen.", false)
                     }
                 }
             } else {
                 // Ignore layouts with silent background log tracking
-                AtikJalwaController.logEvent(
+                DrClickerController.logEvent(
                     "Card evaluated and Ignored: Price ₹$detectedFare (Min: ₹$minPrice), Pickup ${pickupVal}KM (Max: ${maxPickup}KM), Drop ${dropVal}KM (Max: ${maxDrop}KM)",
                     false
                 )
@@ -228,7 +228,7 @@ class AtikJalwaAccessibilityService : AccessibilityService() {
         // 3. Realistic Hold Variations (Hold click dur cycle 60ms to 110ms)
         val touchDuration = (60..110).random().toLong()
 
-        AtikJalwaController.logEvent(
+        DrClickerController.logEvent(
             "Scheduling natural tap: Delay=${delayMs}ms, Coordinates=($targetX, $targetY), PressDuration=${touchDuration}ms",
             true
         )
@@ -253,12 +253,12 @@ class AtikJalwaAccessibilityService : AccessibilityService() {
             dispatchGesture(gesture, object : GestureResultCallback() {
                 override fun onCompleted(gestureDescription: GestureDescription?) {
                     super.onCompleted(gestureDescription)
-                    AtikJalwaController.logEvent("Gesture completed successfully", true)
+                    DrClickerController.logEvent("Gesture completed successfully", true)
                 }
 
                 override fun onCancelled(gestureDescription: GestureDescription?) {
                     super.onCancelled(gestureDescription)
-                    AtikJalwaController.logEvent("Gesture injection rejected/cancelled by system", false)
+                    DrClickerController.logEvent("Gesture injection rejected/cancelled by system", false)
                 }
             }, null)
 
@@ -294,7 +294,7 @@ class AtikJalwaAccessibilityService : AccessibilityService() {
         val swipeTime = holdTime + 220L // Allow more generous travel time for swipes
         val stroke = GestureDescription.StrokeDescription(path, 0, swipeTime)
         
-        AtikJalwaController.logEvent("Bezier Glide path drawn over 20 coordinates, duration = ${swipeTime}ms", true)
+        DrClickerController.logEvent("Bezier Glide path drawn over 20 coordinates, duration = ${swipeTime}ms", true)
         return GestureDescription.Builder().addStroke(stroke).build()
     }
 }

@@ -73,11 +73,11 @@ fun SettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     
     // Core parameters tracked inside in-memory controllers
-    val currentMinPrice by AtikJalwaController.minPrice.collectAsState()
-    val currentMaxPrice by AtikJalwaController.maxPrice.collectAsState()
-    val currentMaxPickup by AtikJalwaController.maxPickupDistance.collectAsState()
-    val currentMaxDrop by AtikJalwaController.maxDropDistance.collectAsState()
-    val logs by AtikJalwaController.scanLogs.collectAsState()
+    val currentMinPrice by DrClickerController.minPrice.collectAsState()
+    val currentMaxPrice by DrClickerController.maxPrice.collectAsState()
+    val currentMaxPickup by DrClickerController.maxPickupDistance.collectAsState()
+    val currentMaxDrop by DrClickerController.maxDropDistance.collectAsState()
+    val logs by DrClickerController.scanLogs.collectAsState()
 
     // Local mutable states for input editing with initial values pre-populated
     var minPriceInput by remember { mutableStateOf(currentMinPrice.toString()) }
@@ -247,10 +247,10 @@ fun SettingsScreen(onBack: () -> Unit) {
                             }
 
                             // Commit to central SharedPreferences via Controller
-                            AtikJalwaController.updateMinPrice(parsedMin)
-                            AtikJalwaController.updateMaxPrice(parsedMax)
-                            AtikJalwaController.updateMaxPickupDistance(parsedPickup)
-                            AtikJalwaController.updateMaxDropDistance(parsedDrop)
+                            DrClickerController.updateMinPrice(parsedMin)
+                            DrClickerController.updateMaxPrice(parsedMax)
+                            DrClickerController.updateMaxPickupDistance(parsedPickup)
+                            DrClickerController.updateMaxDropDistance(parsedDrop)
 
                             Toast.makeText(context, "Filter criteria locked successfully!", Toast.LENGTH_SHORT).show()
                         },

@@ -79,7 +79,7 @@ import androidx.savedstate.SavedStateRegistryOwner
 class FloatingOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwner {
 
     companion object {
-        private const val CHANNEL_ID = "AtikJalwaOverlayChannel"
+        private const val CHANNEL_ID = "DrClickerOverlayChannel"
         private const val NOTIFICATION_ID = 2673
         private const val TAG = "FloatingOverlayService"
     }
@@ -106,7 +106,7 @@ class FloatingOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwne
         savedStateRegistryController.performRestore(null)
         lifecycleRegistry.currentState = Lifecycle.State.CREATED
         
-        AtikJalwaController.initialize(this) // Ensure controller is ready
+        DrClickerController.initialize(this) // Ensure controller is ready
         
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         createNotificationChannel()
@@ -124,7 +124,7 @@ class FloatingOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwne
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Atik Jalwa Background Service",
+                "Dr.Clicker Background Service",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Keeps the overlay assistant active for delivery route matching"
@@ -144,7 +144,7 @@ class FloatingOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwne
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Atik Jalwa Active")
+            .setContentTitle("Dr.Clicker Active")
             .setContentText("Tap to configure filters or manage background scanning")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(pendingIntent)
@@ -233,7 +233,7 @@ fun OverlayDashboard(
     onDrag: (Int, Int) -> Unit,
     onOpenSettings: () -> Unit
 ) {
-    val isScanning by AtikJalwaController.isScanning.collectAsState()
+    val isScanning by DrClickerController.isScanning.collectAsState()
     
     // Manage dynamic collapse state ("translucent side bubble")
     var isCollapsed by remember { mutableStateOf(false) }
@@ -308,7 +308,7 @@ fun OverlayDashboard(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "ATIK JALWA",
+                            text = "DR.CLICKER",
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -360,7 +360,7 @@ fun OverlayDashboard(
 
                 // Single large tactical play/stop toggle
                 Button(
-                    onClick = { AtikJalwaController.setScanning(!isScanning) },
+                    onClick = { DrClickerController.setScanning(!isScanning) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(38.dp),
