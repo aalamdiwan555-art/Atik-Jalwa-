@@ -202,6 +202,9 @@ class FloatingOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwne
                             this.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                         }
                         this@FloatingOverlayService.startActivity(intent)
+                    },
+                    onHide = {
+                        stopSelf()
                     }
                 )
             }
@@ -231,7 +234,8 @@ class FloatingOverlayService : Service(), LifecycleOwner, SavedStateRegistryOwne
 @Composable
 fun OverlayDashboard(
     onDrag: (Int, Int) -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onHide: () -> Unit
 ) {
     val isScanning by DrClickerController.isScanning.collectAsState()
     
@@ -375,6 +379,29 @@ fun OverlayDashboard(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Black,
                         color = if (isScanning) Color.White else Color.Black
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Hide overlay completely
+                Button(
+                    onClick = onHide,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(32.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF222228),
+                        contentColor = Color.LightGray
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.Gray)
+                ) {
+                    Text(
+                        text = "HIDE OVERLAY",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.LightGray
                     )
                 }
             }

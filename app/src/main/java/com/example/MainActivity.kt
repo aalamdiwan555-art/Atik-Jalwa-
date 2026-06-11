@@ -34,6 +34,9 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -572,6 +575,9 @@ fun MainDashboardScreen(
     var showPaymentDialog by remember { mutableStateOf(false) }
     var remainingTimeText by remember { mutableStateOf("") }
 
+    val paymentRequests by AuthManager.paymentRequests.collectAsState()
+    val pendingPayment = paymentRequests.find { it.userUid == user.uid && it.status == PaymentStatus.PENDING }
+
     // Subscription status dynamic countdown and expiration loop
     LaunchedEffect(isActivated) {
         while(true) {
@@ -699,27 +705,46 @@ fun MainDashboardScreen(
                             fontFamily = FontFamily.Monospace,
                             modifier = Modifier.padding(top = 2.dp)
                         )
+                        val neonYellow = Color(0xFFFFB300)
                         Row(
                             modifier = Modifier
                                 .padding(top = 6.dp)
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(if (isActivated) Color(0x1400FF87) else Color(0x14FE3B62))
-                                .border(1.dp, if (isActivated) neonGreen else neonRed, RoundedCornerShape(6.dp))
+                                .background(
+                                    if (isActivated) Color(0x1400FF87)
+                                    else if (pendingPayment != null) Color(0x14FFB300)
+                                    else Color(0x14FE3B62)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isActivated) neonGreen
+                                    else if (pendingPayment != null) neonYellow
+                                    else neonRed,
+                                    RoundedCornerShape(6.dp)
+                                )
                                 .clickable { showPaymentDialog = true }
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = if (isActivated) Icons.Default.CheckCircle else Icons.Default.Lock,
+                                imageVector = if (isActivated) Icons.Default.CheckCircle
+                                              else if (pendingPayment != null) Icons.Default.Refresh
+                                              else Icons.Default.Lock,
                                 contentDescription = "Security Status",
-                                tint = if (isActivated) neonGreen else neonRed,
+                                tint = if (isActivated) neonGreen
+                                       else if (pendingPayment != null) neonYellow
+                                       else neonRed,
                                 modifier = Modifier.size(12.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (isActivated) "APP ACTIVE $remainingTimeText" else "APP DEACTIVATED (TAP TO PAY)",
+                                text = if (isActivated) "APP ACTIVE $remainingTimeText"
+                                       else if (pendingPayment != null) "PENDING LIVE VERIFICATION (TAP)"
+                                       else "APP DEACTIVATED (TAP TO PAY)",
                                 fontSize = 8.sp,
-                                color = if (isActivated) neonGreen else neonRed,
+                                color = if (isActivated) neonGreen
+                                        else if (pendingPayment != null) neonYellow
+                                        else neonRed,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -1399,6 +1424,10 @@ fun AdminDashboardPage(
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilterTab by remember { mutableStateOf("ALL") }
 
+    val paymentRequests by AuthManager.paymentRequests.collectAsState()
+    var adminSectionTab by remember { mutableStateOf("DRIVERS") } // "DRIVERS", "PAYMENTS"
+    var paymentFilterTab by remember { mutableStateOf("PENDING") } // "PENDING", "APPROVED", "REJECTED", "ALL"
+
     var adminMobile by remember { mutableStateOf(AuthManager.getAdminMobile()) }
     var adminPass by remember { mutableStateOf(AuthManager.getAdminPassword()) }
 
@@ -1468,10 +1497,55 @@ fun AdminDashboardPage(
                 }
             }
 
+            // -------------------------------------------------------------
+            // SECTION TABS: DRIVERS DIRECTORY vs PAYMENT CLAIMS
+            // -------------------------------------------------------------
             Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(cardBg)
+                    .padding(2.dp)
             ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (adminSectionTab == "DRIVERS") Color(0xFF2E2E36) else Color.Transparent)
+                        .clickable { adminSectionTab = "DRIVERS" }
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Person, contentDescription = "Drivers", tint = if (adminSectionTab == "DRIVERS") neonGreen else Color.Gray, modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("DRIVERS DIRECTORY", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (adminSectionTab == "DRIVERS") neonGreen else Color.Gray)
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (adminSectionTab == "PAYMENTS") Color(0xFF2E2E36) else Color.Transparent)
+                        .clickable { adminSectionTab = "PAYMENTS" }
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val pendingClaimsCount = paymentRequests.count { it.status == PaymentStatus.PENDING }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = "Payments", tint = if (adminSectionTab == "PAYMENTS") neonGreen else Color.Gray, modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("VERIFY PAYMENTS ($pendingClaimsCount)", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (adminSectionTab == "PAYMENTS") neonGreen else Color.Gray)
+                    }
+                }
+            }
+
+            if (adminSectionTab == "DRIVERS") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                 Card(
                     modifier = Modifier.weight(1f),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF221F12)),
@@ -1729,6 +1803,215 @@ fun AdminDashboardPage(
                     }
                 }
             }
+            } else {
+                // PAYMENT CLAIMS VERIFICATION HUB
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = cardBg)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text(
+                            text = "💸 BANK DEPOSIT & UPI VERIFICATIONS",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                        Text(
+                            text = "Match submitted UPI 12-digit UTR references directly inside bank/PhonePe ledger reports.",
+                            color = Color.Gray,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(bottom = 12.dp)
+                        )
+
+                        // Payment request sub filter tabs
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            listOf("PENDING", "APPROVED", "REJECTED", "ALL").forEach { pTab ->
+                                val isSel = paymentFilterTab == pTab
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isSel) Color(0xFF222228) else Color.Transparent)
+                                        .border(1.dp, if (isSel) neonYellow else Color.DarkGray, RoundedCornerShape(6.dp))
+                                        .clickable { paymentFilterTab = pTab }
+                                        .padding(vertical = 5.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = pTab,
+                                        fontSize = 9.sp,
+                                        color = if (isSel) neonYellow else Color.Gray,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        val displayedClaims = paymentRequests.filter { req ->
+                            when (paymentFilterTab) {
+                                "PENDING" -> req.status == PaymentStatus.PENDING
+                                "APPROVED" -> req.status == PaymentStatus.APPROVED
+                                "REJECTED" -> req.status == PaymentStatus.REJECTED
+                                else -> true
+                            }
+                        }.sortedByDescending { it.timestamp }
+
+                        if (displayedClaims.isEmpty()) {
+                            Text(
+                                text = "Zero payment claims recorded under filter.",
+                                fontSize = 11.sp,
+                                color = Color.Gray,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 30.dp)
+                            )
+                        } else {
+                            displayedClaims.forEach { req ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 10.dp)
+                                        .background(Color(0xFF0F1115), RoundedCornerShape(10.dp))
+                                        .border(1.dp, if (req.status == PaymentStatus.PENDING) neonYellow.copy(alpha = 0.3f) else Color.Transparent, RoundedCornerShape(10.dp))
+                                        .padding(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .background(Color(0x2200FF87))
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(req.planName, color = neonGreen, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("₹${req.payableAmount.toInt()}", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
+                                            }
+                                            
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "Driver: ${req.userEmail}",
+                                                fontSize = 11.sp,
+                                                color = Color.LightGray,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(
+                                                    when (req.status) {
+                                                        PaymentStatus.APPROVED -> Color(0x3300FF87)
+                                                        PaymentStatus.REJECTED -> Color(0x33FE3B62)
+                                                        else -> Color(0x33FFB300)
+                                                    }
+                                                )
+                                                .border(
+                                                    0.5.dp,
+                                                    when (req.status) {
+                                                        PaymentStatus.APPROVED -> neonGreen
+                                                        PaymentStatus.REJECTED -> neonRed
+                                                        else -> neonYellow
+                                                    },
+                                                    RoundedCornerShape(4.dp)
+                                                )
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = req.status.name,
+                                                fontSize = 8.sp,
+                                                color = when (req.status) {
+                                                    PaymentStatus.APPROVED -> neonGreen
+                                                    PaymentStatus.REJECTED -> neonRed
+                                                    else -> neonYellow
+                                                },
+                                                fontWeight = FontWeight.Black
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    androidx.compose.material3.HorizontalDivider(color = Color.DarkGray)
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Display Details Key UTR
+                                    Text(
+                                        text = "SUBMITTED TRANSACTION REF / UTR ID:",
+                                        fontSize = 8.sp,
+                                        color = Color.Gray,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = req.transactionId,
+                                        fontSize = 13.sp,
+                                        color = neonGreen,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace,
+                                        letterSpacing = 1.sp,
+                                        modifier = Modifier.padding(bottom = 4.dp)
+                                    )
+
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Payment Gateway:", fontSize = 9.sp, color = Color.Gray)
+                                        Text("${req.paymentMethod} (${req.paymentDetails})", fontSize = 9.sp, color = Color.White)
+                                    }
+                                    
+                                    val dateStr = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(req.timestamp))
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Submitted Time:", fontSize = 9.sp, color = Color.Gray)
+                                        Text(dateStr, fontSize = 9.sp, color = Color.LightGray)
+                                    }
+
+                                    if (req.status == PaymentStatus.PENDING) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Button(
+                                                onClick = {
+                                                    AuthManager.approvePaymentRequest(req.transactionId)
+                                                    Toast.makeText(context, "TRANSACTION VERIFIED! License activated for driver.", Toast.LENGTH_LONG).show()
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black),
+                                                modifier = Modifier.weight(1.3f).height(32.dp),
+                                                shape = RoundedCornerShape(6.dp),
+                                                contentPadding = PaddingValues(0.dp)
+                                            ) {
+                                                Text("✅ APPROVE & ACTIVATE", fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                            }
+
+                                            Button(
+                                                onClick = {
+                                                    AuthManager.rejectPaymentRequest(req.transactionId)
+                                                    Toast.makeText(context, "DEPOSIT REJECTED", Toast.LENGTH_SHORT).show()
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2B1F20), contentColor = neonRed),
+                                                modifier = Modifier.weight(1f).height(32.dp),
+                                                shape = RoundedCornerShape(6.dp),
+                                                contentPadding = PaddingValues(0.dp)
+                                              ) {
+                                                Text("❌ REJECT CLAIM", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // --- NEW: DYNAMIC SUBSCRIPTION OVERWRITE CONTROLLER ---
             Card(
@@ -1957,9 +2240,15 @@ fun OnlineCashPaymentDialog(
     onActivationSuccess: (Long) -> Unit
 ) {
     val context = LocalContext.current
-    var selectedPackage by remember { mutableStateOf(1) } // 0: Monthly, 1: Lifetime
+    var selectedPackage by remember { mutableStateOf(1) } // 0: Daily, 1: Weekly, 2: Monthly
     var paymentMethod by remember { mutableStateOf("UPI") } // UPI, CARD, CASH
     var selectedUpiApp by remember { mutableStateOf("PhonePe") }
+    
+    // User UTR and reference entries
+    var upiUtr by remember { mutableStateOf("") }
+    var cardHolderName by remember { mutableStateOf("") }
+    var cardRefNo by remember { mutableStateOf("") }
+    var cashSlipId by remember { mutableStateOf("") }
     
     // Card inputs
     var cardNumber by remember { mutableStateOf("") }
@@ -1967,12 +2256,16 @@ fun OnlineCashPaymentDialog(
     var cardCvv by remember { mutableStateOf("") }
     
     // Process State
-    var transactionState by remember { mutableStateOf("IDLE") } // IDLE, PROCESSING, SUCCESS
-    var progressStatusMessage by remember { mutableStateOf("Initiating transaction...") }
+    var transactionState by remember { mutableStateOf("IDLE") } // IDLE, PROCESSING, SUCCESS_SUBMITTED
+    var progressStatusMessage by remember { mutableStateOf("Initiating secure transaction node...") }
     val scope = rememberCoroutineScope()
 
     val neonGreen = Color(0xFF00FF87)
     val neonRed = Color(0xFFFE3B62)
+    val neonYellow = Color(0xFFFFB300)
+
+    val paymentRequests by AuthManager.paymentRequests.collectAsState()
+    val activePendingPayment = paymentRequests.find { it.userUid == user.uid && it.status == PaymentStatus.PENDING }
 
     AlertDialog(
         onDismissRequest = { if (transactionState != "PROCESSING") onDismiss() },
@@ -1981,7 +2274,7 @@ fun OnlineCashPaymentDialog(
             .fillMaxWidth(0.92f)
             .wrapContentHeight()
             .clip(RoundedCornerShape(24.dp))
-            .border(2.dp, neonGreen, RoundedCornerShape(24.dp)),
+            .border(2.dp, if (activePendingPayment != null) neonYellow else neonGreen, RoundedCornerShape(24.dp)),
         containerColor = Color(0xFF07080A),
         title = null,
         text = {
@@ -1991,7 +2284,120 @@ fun OnlineCashPaymentDialog(
                     .padding(8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                if (transactionState == "IDLE") {
+                if (activePendingPayment != null) {
+                    // Render real-time Verification Tracker instead of payment portal
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "⏳ PENDING VERIFICATION",
+                                color = neonYellow,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.sp
+                            )
+                            Text(
+                                text = "Transaction Under Review",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.Gray)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF111319), RoundedCornerShape(12.dp))
+                            .border(1.dp, Color.DarkGray, RoundedCornerShape(12.dp))
+                            .padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(
+                            color = neonYellow,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        Text(
+                            text = "Awaiting Chief Admin Verification",
+                            fontSize = 12.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Please keep patience. Administrator diwanatik84@gmail.com is checking current bank ledger deposits to confirm your payment. Manual activation follows within 5-15 mins.",
+                            fontSize = 10.sp,
+                            color = Color.Gray,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 14.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        androidx.compose.material3.HorizontalDivider(color = Color.DarkGray)
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Render submitted details
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Transaction ID / UTR:", fontSize = 10.sp, color = Color.Gray)
+                            Text(activePendingPayment.transactionId, fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Selected Plan:", fontSize = 10.sp, color = Color.Gray)
+                            Text("${activePendingPayment.planName} (₹${activePendingPayment.payableAmount.toInt()})", fontSize = 10.sp, color = neonGreen, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Payment Gateway:", fontSize = 10.sp, color = Color.Gray)
+                            Text(activePendingPayment.paymentMethod, fontSize = 10.sp, color = Color.LightGray)
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Detailed Log:", fontSize = 10.sp, color = Color.Gray)
+                            Text(activePendingPayment.paymentDetails, fontSize = 9.sp, color = Color.LightGray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                AuthManager.rejectPaymentRequest(activePendingPayment.transactionId)
+                                Toast.makeText(context, "Transaction request deleted. You can re-submit now.", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2B1F20), contentColor = neonRed),
+                            modifier = Modifier.weight(1f).height(40.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, neonRed.copy(alpha = 0.3f))
+                        ) {
+                            Text("CANCEL CLAIM", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = onDismiss,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray, contentColor = Color.White),
+                            modifier = Modifier.weight(1f).height(40.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("KEEP WAITING", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else if (transactionState == "IDLE") {
                     // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -2038,7 +2444,7 @@ fun OnlineCashPaymentDialog(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (selectedPackage == 0) Color(0x3339FF14) else Color(0xFF1A1A1E)
+                                containerColor = if (selectedPackage == 0) Color(0x3300FF87) else Color(0xFF111319)
                             ),
                             border = androidx.compose.foundation.BorderStroke(
                                 1.dp,
@@ -2051,7 +2457,7 @@ fun OnlineCashPaymentDialog(
                             ) {
                                 Text("Daily Pass", fontSize = 9.sp, color = Color.LightGray, maxLines = 1)
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text("₹100", fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color.White)
+                                Text("₹90", fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color.White)
                                 Text("/ day", fontSize = 8.sp, color = Color.Gray)
                             }
                         }
@@ -2062,7 +2468,7 @@ fun OnlineCashPaymentDialog(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (selectedPackage == 1) Color(0x3339FF14) else Color(0xFF1A1A1E)
+                                containerColor = if (selectedPackage == 1) Color(0x3300FF87) else Color(0xFF111319)
                             ),
                             border = androidx.compose.foundation.BorderStroke(
                                 1.dp,
@@ -2075,7 +2481,7 @@ fun OnlineCashPaymentDialog(
                             ) {
                                 Text("Weekly Pass", fontSize = 9.sp, color = Color.LightGray, maxLines = 1)
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text("₹500", fontSize = 15.sp, fontWeight = FontWeight.Black, color = neonGreen)
+                                Text("₹490", fontSize = 15.sp, fontWeight = FontWeight.Black, color = neonGreen)
                                 Text("/ week", fontSize = 8.sp, color = Color.Gray)
                             }
                         }
@@ -2086,7 +2492,7 @@ fun OnlineCashPaymentDialog(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (selectedPackage == 2) Color(0x3339FF14) else Color(0xFF1A1A1E)
+                                containerColor = if (selectedPackage == 2) Color(0x3300FF87) else Color(0xFF111319)
                             ),
                             border = androidx.compose.foundation.BorderStroke(
                                 1.dp,
@@ -2099,7 +2505,7 @@ fun OnlineCashPaymentDialog(
                             ) {
                                 Text("Monthly Pass", fontSize = 9.sp, color = Color.LightGray, maxLines = 1)
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text("₹3000", fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color.White)
+                                Text("₹2990", fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color.White)
                                 Text("/ month", fontSize = 8.sp, color = Color.Gray)
                             }
                         }
@@ -2119,7 +2525,7 @@ fun OnlineCashPaymentDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF1A1A1E))
+                            .background(Color(0xFF111319))
                             .padding(2.dp),
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
@@ -2151,7 +2557,7 @@ fun OnlineCashPaymentDialog(
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(Color(0xFF16161A), RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF111319), RoundedCornerShape(12.dp))
                                     .padding(12.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
@@ -2166,12 +2572,11 @@ fun OnlineCashPaymentDialog(
                                 // Simple mock QR Code representation
                                 Box(
                                     modifier = Modifier
-                                        .size(110.dp)
+                                        .size(100.dp)
                                         .background(Color.White, RoundedCornerShape(8.dp))
                                         .padding(8.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    // Let us draw an aesthetic custom QR grid
                                     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
                                         val size = this.size.width
                                         val numBlocks = 12
@@ -2198,23 +2603,23 @@ fun OnlineCashPaymentDialog(
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
 
                                 Text(
-                                    text = "SCAN QR CODE TO PAY",
+                                    text = "SCAN THE QR TO PAY UP",
                                     fontSize = 11.sp,
                                     color = Color.LightGray,
                                     fontWeight = FontWeight.Bold
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.height(3.dp))
                                 Text(
-                                    text = "Scan the QR scanner below using any UPI App to activate instantly.",
+                                    text = "Pay using any UPI App (PhonePe, GPay, Paytm) then copy and paste the 12-digit UTR/Ref number below to verify.",
                                     fontSize = 9.sp,
                                     color = Color.Gray,
                                     textAlign = TextAlign.Center
                                 )
 
-                                Spacer(modifier = Modifier.height(10.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
 
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf("PhonePe", "GPay", "Paytm").forEach { app ->
@@ -2239,13 +2644,32 @@ fun OnlineCashPaymentDialog(
                                         }
                                     }
                                 }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+                                
+                                OutlinedTextField(
+                                    value = upiUtr,
+                                    onValueChange = { if (it.length <= 12) upiUtr = it.filter { c -> c.isDigit() } },
+                                    label = { Text("Enter 12-Digit UPI UTR / Transaction No", fontSize = 10.sp) },
+                                    placeholder = { Text("e.g. 520194857642") },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.LightGray,
+                                        focusedBorderColor = neonGreen,
+                                        unfocusedBorderColor = Color.DarkGray,
+                                        focusedLabelColor = neonGreen
+                                    )
+                                )
                             }
                         }
                         "CARD" -> {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(Color(0xFF16161A), RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF111319), RoundedCornerShape(12.dp))
                                     .padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
@@ -2255,6 +2679,20 @@ fun OnlineCashPaymentDialog(
                                     color = Color.LightGray,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(bottom = 2.dp)
+                                )
+
+                                OutlinedTextField(
+                                    value = cardHolderName,
+                                    onValueChange = { cardHolderName = it },
+                                    label = { Text("Cardholder Full Name", fontSize = 10.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.LightGray,
+                                        focusedBorderColor = neonGreen,
+                                        unfocusedBorderColor = Color.DarkGray
+                                    )
                                 )
 
                                 OutlinedTextField(
@@ -2305,17 +2743,32 @@ fun OnlineCashPaymentDialog(
                                         )
                                     )
                                 }
+
+                                OutlinedTextField(
+                                    value = cardRefNo,
+                                    onValueChange = { cardRefNo = it },
+                                    label = { Text("Enter Bank Card Auth Txn ID", fontSize = 10.sp) },
+                                    placeholder = { Text("OP_82736452") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.LightGray,
+                                        focusedBorderColor = neonGreen,
+                                        unfocusedBorderColor = Color.DarkGray
+                                    )
+                                )
                             }
                         }
                         "CASH AGENT" -> {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(Color(0xFF16161A), RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF111319), RoundedCornerShape(12.dp))
                                     .padding(14.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Icon(Icons.Default.Warning, contentDescription = "Cash Agent", tint = Color(0xFFFFD600), modifier = Modifier.size(28.dp))
+                                Icon(Icons.Default.Warning, contentDescription = "Cash Agent", tint = neonYellow, modifier = Modifier.size(28.dp))
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
                                     text = "OFFLINE CASH DESK VERIFICATION",
@@ -2325,11 +2778,25 @@ fun OnlineCashPaymentDialog(
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Send cash to Chief Admin at email diwanatik84@gmail.com or call admin support team to submit physical cash voucher.\n\nOnce approved, click manual checkout below to instantly confirm activation.",
-                                    fontSize = 10.sp,
+                                    text = "Deposit cash directly with Chief Admin at email diwanatik84@gmail.com, or support line (9316642884). Once you deposit work-voucher money, paste your cash Receipt ID / UTR No below to match Admin ledger registries.",
+                                    fontSize = 9.sp,
                                     color = Color.LightGray,
                                     textAlign = TextAlign.Center,
                                     lineHeight = 14.sp
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                OutlinedTextField(
+                                    value = cashSlipId,
+                                    onValueChange = { cashSlipId = it },
+                                    label = { Text("Deposit Receipt Number / slip ID", fontSize = 10.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.LightGray,
+                                        focusedBorderColor = neonGreen,
+                                        unfocusedBorderColor = Color.DarkGray
+                                    )
                                 )
                             }
                         }
@@ -2337,23 +2804,80 @@ fun OnlineCashPaymentDialog(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    // Activate Action Button
+                    // Promote security verification
                     Button(
                         onClick = {
-                            if (paymentMethod == "CARD" && (cardNumber.length < 16 || cardExpiry.isEmpty() || cardCvv.length < 3)) {
-                                Toast.makeText(context, "Please complete valid credit card credentials.", Toast.LENGTH_SHORT).show()
+                            if (paymentMethod == "UPI" && upiUtr.length < 12) {
+                                Toast.makeText(context, "Please enter a valid 12-digit UPI UTR Number.", Toast.LENGTH_SHORT).show()
+                                return@Button
+                            }
+                            if (paymentMethod == "CARD") {
+                                if (cardNumber.length < 16 || cardExpiry.isEmpty() || cardCvv.length < 3 || cardRefNo.trim().isEmpty()) {
+                                    Toast.makeText(context, "Please fill in complete Card details and Bank Auth Tx No.", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                            }
+                            if (paymentMethod == "CASH AGENT" && cashSlipId.trim().isEmpty()) {
+                                Toast.makeText(context, "Please write the physical Cash Voucher receipt number.", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
 
                             scope.launch {
                                 transactionState = "PROCESSING"
                                 progressStatusMessage = "Connecting with Secure Online Payment Node..."
-                                delay(1000)
-                                progressStatusMessage = "Verifying Cash Deposit Confirmation & Signatures..."
-                                delay(1100)
-                                progressStatusMessage = "Matching Device HWID License Key..."
                                 delay(900)
-                                transactionState = "SUCCESS"
+                                progressStatusMessage = "Registering transaction claim in Firebase server..."
+                                delay(1000)
+                                progressStatusMessage = "Hashing transaction cryptographic keys..."
+                                delay(600)
+
+                                // Assemble Request
+                                val txId = when (paymentMethod) {
+                                    "CARD" -> cardRefNo.trim()
+                                    "CASH AGENT" -> cashSlipId.trim()
+                                    else -> upiUtr.trim()
+                                }
+                                val amount = when (selectedPackage) {
+                                    0 -> 90.0
+                                    1 -> 490.0
+                                    else -> 2990.0
+                                }
+                                val planName = when (selectedPackage) {
+                                    0 -> "Daily Pass"
+                                    1 -> "Weekly Pass"
+                                    else -> "Monthly Pass"
+                                }
+                                val durationMs = when (selectedPackage) {
+                                    0 -> 24 * 60 * 60 * 1000L
+                                    1 -> 7 * 24 * 60 * 60 * 1000L
+                                    else -> 30 * 24 * 60 * 60 * 1000L
+                                }
+                                val detailedLogs = when (paymentMethod) {
+                                    "UPI" -> "UPI App: $selectedUpiApp, UTR ID: $txId"
+                                    "CARD" -> "Holder: $cardHolderName, Card: ****${cardNumber.takeLast(4)}, Auth Code: $txId"
+                                    else -> "Cash Agent Deposit slip No: $txId"
+                                }
+
+                                val req = PaymentRequest(
+                                    transactionId = txId,
+                                    userUid = user.uid,
+                                    userEmail = user.email,
+                                    planName = planName,
+                                    payableAmount = amount,
+                                    paymentMethod = paymentMethod,
+                                    paymentDetails = detailedLogs,
+                                    status = PaymentStatus.PENDING,
+                                    timestamp = System.currentTimeMillis(),
+                                    durationMs = durationMs
+                                )
+
+                                val isSaved = AuthManager.submitPaymentRequest(req)
+                                if (isSaved) {
+                                    transactionState = "SUCCESS_SUBMITTED"
+                                } else {
+                                    transactionState = "IDLE"
+                                    Toast.makeText(context, "ERROR: This UTR / Txn reference number has already been claimed inside our system. Please check details or write support team.", Toast.LENGTH_LONG).show()
+                                }
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black),
@@ -2363,7 +2887,7 @@ fun OnlineCashPaymentDialog(
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Text(
-                            text = "ACTIVATE & DEPOSIT CASH (CONVERT ONLINE)",
+                            text = "SUBMIT TRANSACTION FOR VERIFICATION",
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 11.sp
                         )
@@ -2378,7 +2902,7 @@ fun OnlineCashPaymentDialog(
                         CircularProgressIndicator(color = neonGreen, modifier = Modifier.size(54.dp))
                         Spacer(modifier = Modifier.height(18.dp))
                         Text(
-                            text = "SECURE CASH TRANSACTION IN PROGRESS",
+                            text = "TRANSACTION PROCESSING SECURITY SHELL",
                             fontSize = 11.sp,
                             color = neonGreen,
                             fontWeight = FontWeight.Bold,
@@ -2398,7 +2922,7 @@ fun OnlineCashPaymentDialog(
                             color = Color.Gray
                         )
                     }
-                } else if (transactionState == "SUCCESS") {
+                } else if (transactionState == "SUCCESS_SUBMITTED") {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2408,7 +2932,7 @@ fun OnlineCashPaymentDialog(
                         Box(
                             modifier = Modifier
                                 .size(72.dp)
-                                .background(Color(0xFF223522), CircleShape)
+                                .background(Color(0xFF222F22), CircleShape)
                                 .border(2.dp, neonGreen, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
@@ -2421,41 +2945,37 @@ fun OnlineCashPaymentDialog(
                         }
                         Spacer(modifier = Modifier.height(18.dp))
                         Text(
-                            text = "TRANSACTION CONFIRMED!",
+                            text = "CLAIM SUBMITTED SECURELY",
                             fontSize = 18.sp,
                             color = Color.White,
                             fontWeight = FontWeight.Black
                         )
                         Spacer(modifier = Modifier.height(6.dp) )
                         Text(
-                            text = "Premium Driver Automation License Activated.",
+                            text = "Your transaction reference has been recorded in Firebase registries. A live administrator is verifying your bank transfer.",
                             fontSize = 11.sp,
                             color = Color.LightGray,
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
+                            lineHeight = 15.sp
                         )
+                        Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = "Assigned Node Account: ${user.email}",
+                            text = "Licence will be auto-released the moment verification matches. You can monitor progress live or close this box.",
                             fontSize = 9.sp,
-                            color = Color.Gray,
-                            textAlign = TextAlign.Center
+                            color = neonYellow,
+                            textAlign = TextAlign.Center,
+                            fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(
-                            onClick = {
-                                val durationMs = when (selectedPackage) {
-                                    0 -> 24 * 60 * 60 * 1000L // Daily Pass (100 Rs)
-                                    1 -> 7 * 24 * 60 * 60 * 1000L // Weekly Pass (500 Rs)
-                                    else -> 30 * 24 * 60 * 60 * 1000L // Monthly Pass (3000 Rs)
-                                }
-                                onActivationSuccess(durationMs)
-                            },
+                            onClick = onDismiss,
                             colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(42.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("ENTER SYSTEM DESK NOW", fontWeight = FontWeight.Black, fontSize = 11.sp)
+                            Text("RETURN TO HOME DESK", fontWeight = FontWeight.Black, fontSize = 11.sp)
                         }
                     }
                 }

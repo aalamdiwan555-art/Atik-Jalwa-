@@ -23,11 +23,31 @@ data class AppUser(
     val subscriptionExpiry: Long = 0L
 )
 
+enum class PaymentStatus {
+    PENDING,
+    APPROVED,
+    REJECTED
+}
+
+data class PaymentRequest(
+    val transactionId: String,
+    val userUid: String,
+    val userEmail: String,
+    val planName: String,
+    val payableAmount: Double,
+    val paymentMethod: String,
+    val paymentDetails: String,
+    val status: PaymentStatus,
+    val timestamp: Long,
+    val durationMs: Long
+)
+
 object AuthManager {
     private const val TAG = "AuthManager"
     private const val PREF_AUTH = "DrClickerAuthPrefs"
     private const val KEY_CURRENT_USER_UID = "current_user_uid"
     private const val KEY_USER_LIST = "all_registered_users"
+    private const val KEY_PAYMENT_REQUESTS = "all_payment_transaction_requests"
     private const val KEY_ADMIN_MOBILE = "admin_mobile_num"
     private const val KEY_ADMIN_PASSWORD = "admin_password_key"
 
@@ -40,6 +60,9 @@ object AuthManager {
 
     private val _allUsers = MutableStateFlow<List<AppUser>>(emptyList())
     val allUsers: StateFlow<List<AppUser>> = _allUsers.asStateFlow()
+
+    private val _paymentRequests = MutableStateFlow<List<PaymentRequest>>(emptyList())
+    val paymentRequests: StateFlow<List<PaymentRequest>> = _paymentRequests.asStateFlow()
 
     fun initialize(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREF_AUTH, Context.MODE_PRIVATE)
@@ -73,7 +96,29 @@ object AuthManager {
             saveUsersToStore(defaultUsers)
         }
 
-        // 4. Try to restore active user session
+        // 4. Load payment verification claims
+        loadPaymentRequestsFromStore()
+
+        // Pre-populate dummy pending payment requests if empty so the Admin has elements to test instantly
+        if (_paymentRequests.value.isEmpty()) {
+            val sampleRequests = listOf(
+                PaymentRequest(
+                    transactionId = "120394857642",
+                    userUid = "user_pending",
+                    userEmail = "driver@jalwa.com",
+                    planName = "Weekly Pass",
+                    payableAmount = 500.0,
+                    paymentMethod = "UPI",
+                    paymentDetails = "UTR: 120394857642 (GPay)",
+                    status = PaymentStatus.PENDING,
+                    timestamp = System.currentTimeMillis() - (15 * 60 * 1000), // 15 mins ago
+                    durationMs = 7 * 24 * 60 * 60 * 1000L
+                )
+            )
+            savePaymentRequestsToStore(sampleRequests)
+        }
+
+        // 5. Try to restore active user session
         restoreActiveSession()
     }
 
@@ -88,11 +133,11 @@ object AuthManager {
                     val exp = if (parts.size >= 5) parts[4].toLongOrNull() ?: 0L else 0L
                     list.add(
                         AppUser(
-                            uid = parts[0],
-                            email = parts[1],
-                            status = UserStatus.valueOf(parts[2]),
-                            role = parts[3],
-                            subscriptionExpiry = exp
+                          uid = parts[0],
+                          email = parts[1],
+                          status = UserStatus.valueOf(parts[2]),
+                          role = parts[3],
+                          subscriptionExpiry = exp
                         )
                     )
                 } catch (e: Exception) {
@@ -107,6 +152,90 @@ object AuthManager {
         _allUsers.value = users
         val stringSet = users.map { "${it.uid}|${it.email}|${it.status.name}|${it.role}|${it.subscriptionExpiry}" }.toSet()
         prefs.edit().putStringSet(KEY_USER_LIST, stringSet).apply()
+    }
+
+    private fun loadPaymentRequestsFromStore() {
+        val strings = prefs.getStringSet(KEY_PAYMENT_REQUESTS, emptySet()) ?: emptySet()
+        val list = mutableListOf<PaymentRequest>()
+        for (str in strings) {
+            // Format: transactionId|userUid|userEmail|planName|payableAmount|paymentMethod|paymentDetails|status|timestamp|durationMs
+            val parts = str.split("|")
+            if (parts.size >= 10) {
+                try {
+                    list.add(
+                        PaymentRequest(
+                            transactionId = parts[0],
+                            userUid = parts[1],
+                            userEmail = parts[2],
+                            planName = parts[3],
+                            payableAmount = parts[4].toDoubleOrNull() ?: 0.0,
+                            paymentMethod = parts[5],
+                            paymentDetails = parts[6],
+                            status = PaymentStatus.valueOf(parts[7]),
+                            timestamp = parts[8].toLongOrNull() ?: 0L,
+                            durationMs = parts[9].toLongOrNull() ?: 0L
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed parsing payment request: $str")
+                }
+            }
+        }
+        // Sort newest transactions first
+        _paymentRequests.value = list.sortedByDescending { it.timestamp }
+    }
+
+    private fun savePaymentRequestsToStore(list: List<PaymentRequest>) {
+        _paymentRequests.value = list.sortedByDescending { it.timestamp }
+        val stringSet = list.map {
+            "${it.transactionId}|${it.userUid}|${it.userEmail}|${it.planName}|${it.payableAmount}|${it.paymentMethod}|${it.paymentDetails}|${it.status.name}|${it.timestamp}|${it.durationMs}"
+        }.toSet()
+        prefs.edit().putStringSet(KEY_PAYMENT_REQUESTS, stringSet).apply()
+    }
+
+    fun submitPaymentRequest(req: PaymentRequest): Boolean {
+        // Prevent duplicate transactionId submissions
+        val currentList = _paymentRequests.value
+        if (currentList.any { it.transactionId == req.transactionId }) {
+            return false
+        }
+        val newList = currentList.toMutableList().apply { add(req) }
+        savePaymentRequestsToStore(newList)
+        return true
+    }
+
+    fun approvePaymentRequest(trxId: String): Boolean {
+        val currentList = _paymentRequests.value.toMutableList()
+        val index = currentList.indexOfFirst { it.transactionId == trxId }
+        if (index != -1) {
+            val req = currentList[index]
+            val updatedReq = req.copy(status = PaymentStatus.APPROVED)
+            currentList[index] = updatedReq
+            savePaymentRequestsToStore(currentList)
+
+            // Auto-activate or extend driver's premium subscription
+            val userRecord = _allUsers.value.find { it.uid == req.userUid }
+            val currentExpiry = userRecord?.subscriptionExpiry ?: 0L
+            val baseTime = if (currentExpiry > System.currentTimeMillis()) currentExpiry else System.currentTimeMillis()
+            val finalExpiry = baseTime + req.durationMs
+            
+            updateUserSubscription(req.userUid, finalExpiry)
+            return true
+        }
+        return false
+    }
+
+    fun rejectPaymentRequest(trxId: String): Boolean {
+        val currentList = _paymentRequests.value.toMutableList()
+        val index = currentList.indexOfFirst { it.transactionId == trxId }
+        if (index != -1) {
+            val req = currentList[index]
+            val updatedReq = req.copy(status = PaymentStatus.REJECTED)
+            currentList[index] = updatedReq
+            savePaymentRequestsToStore(currentList)
+            return true
+        }
+        return false
     }
 
     private fun restoreActiveSession() {
