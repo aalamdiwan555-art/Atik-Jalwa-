@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Dr.Clicker</string>
+    <string name="accessibility_service_label">Dr.Clicker Auto-Tap Service</string>
+    <string name="accessibility_service_description">Enables real-time automatic clicking and tapping automation on the active driver dispatch screen.</string>
 </resources>

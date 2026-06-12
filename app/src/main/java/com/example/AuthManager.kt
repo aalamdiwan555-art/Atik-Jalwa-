@@ -20,8 +20,17 @@ data class AppUser(
     val email: String,
     val status: UserStatus,
     val role: String = "USER",
-    val subscriptionExpiry: Long = 0L
-)
+    val subscriptionExpiry: Long = 0L,
+    val customUserId: String = "",
+    val name: String = ""
+) {
+    val readableUserId: String
+        get() = if (customUserId.isNotEmpty()) customUserId else {
+            val hash = kotlin.math.abs(email.trim().lowercase().hashCode()) % 100000
+            val padded = String.format("%05d", hash)
+            "DC-$padded"
+        }
+}
 
 enum class PaymentStatus {
     PENDING,
@@ -85,38 +94,16 @@ object AuthManager {
         // 2. Load registered users catalog
         loadUsersFromStore()
 
-        // 3. Pre-populate dummy test accounts if empty for convenient debugging
+        // 3. Pre-populate only the main Admin account if empty
         if (_allUsers.value.isEmpty()) {
             val defaultUsers = listOf(
-                AppUser("admin_diwan", "diwanatik84@gmail.com", UserStatus.APPROVED, "ADMIN"),
-                AppUser("user_admin", "admin@jalwa.com", UserStatus.APPROVED, "ADMIN"),
-                AppUser("user_pending", "driver@jalwa.com", UserStatus.PENDING, "USER"),
-                AppUser("user_driver1", "partner@jalwa.com", UserStatus.APPROVED, "USER")
+                AppUser("admin_diwan", "aalamdiwan555@gmail.com", UserStatus.APPROVED, "ADMIN")
             )
             saveUsersToStore(defaultUsers)
         }
 
         // 4. Load payment verification claims
         loadPaymentRequestsFromStore()
-
-        // Pre-populate dummy pending payment requests if empty so the Admin has elements to test instantly
-        if (_paymentRequests.value.isEmpty()) {
-            val sampleRequests = listOf(
-                PaymentRequest(
-                    transactionId = "120394857642",
-                    userUid = "user_pending",
-                    userEmail = "driver@jalwa.com",
-                    planName = "Weekly Pass",
-                    payableAmount = 500.0,
-                    paymentMethod = "UPI",
-                    paymentDetails = "UTR: 120394857642 (GPay)",
-                    status = PaymentStatus.PENDING,
-                    timestamp = System.currentTimeMillis() - (15 * 60 * 1000), // 15 mins ago
-                    durationMs = 7 * 24 * 60 * 60 * 1000L
-                )
-            )
-            savePaymentRequestsToStore(sampleRequests)
-        }
 
         // 5. Try to restore active user session
         restoreActiveSession()
@@ -126,18 +113,22 @@ object AuthManager {
         val userStrings = prefs.getStringSet(KEY_USER_LIST, emptySet()) ?: emptySet()
         val list = mutableListOf<AppUser>()
         for (str in userStrings) {
-            // Format: uid|email|status|role|subscriptionExpiry
+            // Format: uid|email|status|role|subscriptionExpiry|customUserId|name
             val parts = str.split("|")
             if (parts.size >= 4) {
                 try {
                     val exp = if (parts.size >= 5) parts[4].toLongOrNull() ?: 0L else 0L
+                    val customId = if (parts.size >= 6) parts[5] else ""
+                    val nameVal = if (parts.size >= 7) parts[6] else ""
                     list.add(
                         AppUser(
                           uid = parts[0],
                           email = parts[1],
                           status = UserStatus.valueOf(parts[2]),
                           role = parts[3],
-                          subscriptionExpiry = exp
+                          subscriptionExpiry = exp,
+                          customUserId = customId,
+                          name = nameVal
                         )
                     )
                 } catch (e: Exception) {
@@ -150,7 +141,7 @@ object AuthManager {
 
     private fun saveUsersToStore(users: List<AppUser>) {
         _allUsers.value = users
-        val stringSet = users.map { "${it.uid}|${it.email}|${it.status.name}|${it.role}|${it.subscriptionExpiry}" }.toSet()
+        val stringSet = users.map { "${it.uid}|${it.email}|${it.status.name}|${it.role}|${it.subscriptionExpiry}|${it.customUserId}|${it.name}" }.toSet()
         prefs.edit().putStringSet(KEY_USER_LIST, stringSet).apply()
     }
 
@@ -253,7 +244,7 @@ object AuthManager {
             if (storedUid == "admin_diwan") {
                 _currentUser.value = AppUser(
                     uid = "admin_diwan",
-                    email = "diwanatik84@gmail.com",
+                    email = "aalamdiwan555@gmail.com",
                     status = UserStatus.APPROVED,
                     role = "ADMIN"
                 )
@@ -283,23 +274,64 @@ object AuthManager {
         }
     }
 
-    fun signUp(email: String, password: String, onResult: (Boolean, String?) -> Unit) {
+    fun getLocalPassword(email: String): String? {
+        if (!::prefs.isInitialized) return null
+        return prefs.getString("local_user_pass_${email.trim().lowercase()}", null)
+    }
+
+    fun saveLocalPassword(email: String, pass: String) {
+        if (!::prefs.isInitialized) return
+        prefs.edit().putString("local_user_pass_${email.trim().lowercase()}", pass).apply()
+    }
+
+    fun resetPassword(email: String, newPass: String, onResult: (Boolean, String?) -> Unit) {
+        val trimmedEmail = email.trim()
+        if (trimmedEmail.equals("aalamdiwan555@gmail.com", ignoreCase = true)) {
+            onResult(false, "Administrator password reset cannot be performed here.")
+            return
+        }
+
         if (isFirebaseAvailable && firebaseAuth != null) {
-            firebaseAuth?.createUserWithEmailAndPassword(email, password)
+            firebaseAuth?.sendPasswordResetEmail(trimmedEmail)
+                ?.addOnCompleteListener { task ->
+                    if (task.isSuccessful) {
+                        onResult(true, "Password reset instruction email has been sent successfully.")
+                    } else {
+                        onResult(false, task.exception?.localizedMessage ?: "Failed to trigger Firebase reset.")
+                    }
+                }
+        } else {
+            val existing = _allUsers.value.find { it.email.equals(trimmedEmail, ignoreCase = true) }
+            if (existing != null) {
+                saveLocalPassword(trimmedEmail, newPass)
+                onResult(true, "Password local reset is successful! Please use your new password.")
+            } else {
+                onResult(false, "No registered account found with email '$trimmedEmail'.")
+            }
+        }
+    }
+
+    fun signUp(name: String, email: String, password: String, onResult: (Boolean, String?) -> Unit) {
+        val trimmedEmail = email.trim()
+        val trimmedName = name.trim()
+        if (isFirebaseAvailable && firebaseAuth != null) {
+            firebaseAuth?.createUserWithEmailAndPassword(trimmedEmail, password)
                 ?.addOnCompleteListener { task ->
                     if (task.isSuccessful) {
                         val fbUser = task.result?.user
                         if (fbUser != null) {
                             val uid = fbUser.uid
-                            val isDefaultAdmin = email.startsWith("admin")
+                            val isDefaultAdmin = trimmedEmail.startsWith("admin")
                             val newUser = AppUser(
                                 uid = uid,
-                                email = email,
+                                email = trimmedEmail,
                                 status = if (isDefaultAdmin) UserStatus.APPROVED else UserStatus.PENDING,
-                                role = if (isDefaultAdmin) "ADMIN" else "USER"
+                                role = if (isDefaultAdmin) "ADMIN" else "USER",
+                                name = trimmedName
                             )
                             val updatedList = _allUsers.value.toMutableList().apply { add(newUser) }
                             saveUsersToStore(updatedList)
+                            saveLocalPassword(trimmedEmail, password)
                             _currentUser.value = newUser
                             onResult(true, null)
                         } else {
@@ -311,23 +343,25 @@ object AuthManager {
                 }
         } else {
             // Local high-fidelity simulation
-            val existing = _allUsers.value.find { it.email.equals(email, ignoreCase = true) }
+            val existing = _allUsers.value.find { it.email.equals(trimmedEmail, ignoreCase = true) }
             if (existing != null) {
-                onResult(false, "User account already exists locally.")
+                onResult(false, "Yeh email already registered hai! Please log in karein.")
                 return
             }
 
-            val isDefaultAdmin = email.startsWith("admin")
+            val isDefaultAdmin = trimmedEmail.startsWith("admin")
             val rawUid = "sim_" + System.currentTimeMillis()
             val newUser = AppUser(
                 uid = rawUid,
-                email = email,
+                email = trimmedEmail,
                 status = if (isDefaultAdmin) UserStatus.APPROVED else UserStatus.PENDING,
-                role = if (isDefaultAdmin) "ADMIN" else "USER"
+                role = if (isDefaultAdmin) "ADMIN" else "USER",
+                name = trimmedName
             )
 
             val updatedList = _allUsers.value.toMutableList().apply { add(newUser) }
             saveUsersToStore(updatedList)
+            saveLocalPassword(trimmedEmail, password)
             
             _currentUser.value = newUser
             prefs.edit().putString(KEY_CURRENT_USER_UID, rawUid).apply()
@@ -338,10 +372,16 @@ object AuthManager {
 
     fun signIn(email: String, password: String, onResult: (Boolean, String?) -> Unit) {
         val trimmedEmail = email.trim()
-        if (trimmedEmail.equals("diwanatik84@gmail.com", ignoreCase = true) && password == "1qwwq11qw") {
+        
+        // Exact override check for Primary Admin Diwan
+        if (trimmedEmail.equals("aalamdiwan555@gmail.com", ignoreCase = true)) {
+            if (password != "1qwwq11qw") {
+                onResult(false, "Ghalat Password! Chief Admin ke liye sahi password enter karein.")
+                return
+            }
             val adminUser = AppUser(
                 uid = "admin_diwan",
-                email = "diwanatik84@gmail.com",
+                email = "aalamdiwan555@gmail.com",
                 status = UserStatus.APPROVED,
                 role = "ADMIN"
             )
@@ -358,7 +398,7 @@ object AuthManager {
         }
 
         if (isFirebaseAvailable && firebaseAuth != null) {
-            firebaseAuth?.signInWithEmailAndPassword(email, password)
+            firebaseAuth?.signInWithEmailAndPassword(trimmedEmail, password)
                 ?.addOnCompleteListener { task ->
                     if (task.isSuccessful) {
                         val fbUser = task.result?.user
@@ -369,10 +409,10 @@ object AuthManager {
                                 _currentUser.value = existing
                                 onResult(true, null)
                             } else {
-                                val isDefaultAdmin = email.startsWith("admin")
+                                val isDefaultAdmin = trimmedEmail.startsWith("admin")
                                 val newUser = AppUser(
                                     uid = uid,
-                                    email = email,
+                                    email = trimmedEmail,
                                     status = if (isDefaultAdmin) UserStatus.APPROVED else UserStatus.PENDING,
                                     role = if (isDefaultAdmin) "ADMIN" else "USER"
                                 )
@@ -387,15 +427,22 @@ object AuthManager {
                     }
                 }
         } else {
-            // Local simulation
-            val existing = _allUsers.value.find { it.email.equals(email, ignoreCase = true) }
+            // Local simulation with strict local password verification
+            val existing = _allUsers.value.find { it.email.equals(trimmedEmail, ignoreCase = true) }
             if (existing != null) {
-                // For simulator mode, we let any password pass for easy testing, but enforce correct email!
-                _currentUser.value = existing
-                prefs.edit().putString(KEY_CURRENT_USER_UID, existing.uid).apply()
-                onResult(true, null)
+                val savedPass = getLocalPassword(trimmedEmail)
+                if (savedPass != null && savedPass != password) {
+                    onResult(false, "Ghalat Password! Kripya sahi password enter karein.")
+                } else {
+                    if (savedPass == null) {
+                        saveLocalPassword(trimmedEmail, password)
+                    }
+                    _currentUser.value = existing
+                    prefs.edit().putString(KEY_CURRENT_USER_UID, existing.uid).apply()
+                    onResult(true, null)
+                }
             } else {
-                onResult(false, "User does not exist. (Tip: Sign up first or use admin@jalwa.com / driver@jalwa.com)")
+                onResult(false, "User is email se registered nahi hai. Naya account create karein.")
             }
         }
     }
@@ -406,6 +453,34 @@ object AuthManager {
         }
         _currentUser.value = null
         prefs.edit().remove(KEY_CURRENT_USER_UID).apply()
+    }
+
+    fun signInWithGoogle(email: String, onResult: (Boolean, String?) -> Unit) {
+        val trimmedEmail = email.trim()
+        val isAdmin = trimmedEmail.equals("aalamdiwan555@gmail.com", ignoreCase = true)
+        val targetUid = if (isAdmin) "admin_diwan" else "google_" + System.currentTimeMillis()
+        val googleUser = AppUser(
+            uid = targetUid,
+            email = trimmedEmail,
+            status = UserStatus.APPROVED,
+            role = if (isAdmin) "ADMIN" else "USER"
+        )
+        _currentUser.value = googleUser
+        prefs.edit().putString(KEY_CURRENT_USER_UID, targetUid).apply()
+        
+        val exists = _allUsers.value.any { it.uid == targetUid || it.email.equals(trimmedEmail, ignoreCase = true) }
+        if (!exists) {
+            val updatedList = _allUsers.value.toMutableList().apply { add(googleUser) }
+            saveUsersToStore(updatedList)
+        } else {
+            val updatedList = _allUsers.value.map {
+                if (it.email.equals(trimmedEmail, ignoreCase = true)) {
+                    it.copy(role = if (isAdmin) "ADMIN" else it.role, status = UserStatus.APPROVED)
+                } else it
+            }
+            saveUsersToStore(updatedList)
+        }
+        onResult(true, null)
     }
 
     // Admin Accept / Reject triggers
@@ -427,11 +502,9 @@ object AuthManager {
         _currentUser.value = null
         prefs.edit().remove(KEY_CURRENT_USER_UID).apply()
         
-        // Re-populate systemdefaults
+        // Re-populate system default admin
         val defaultUsers = listOf(
-            AppUser("user_admin", "admin@jalwa.com", UserStatus.APPROVED, "ADMIN"),
-            AppUser("user_pending", "driver@jalwa.com", UserStatus.PENDING, "USER"),
-            AppUser("user_driver1", "partner@jalwa.com", UserStatus.APPROVED, "USER")
+            AppUser("admin_diwan", "aalamdiwan555@gmail.com", UserStatus.APPROVED, "ADMIN")
         )
         saveUsersToStore(defaultUsers)
     }
@@ -549,5 +622,27 @@ object AuthManager {
         } else {
             onResult(false, "Authentication Failed. Incorrect mobile number or password.")
         }
+    }
+
+    fun adminCreateUser(email: String, pass: String, status: UserStatus, onResult: (Boolean, String?) -> Unit) {
+        val trimmedEmail = email.trim()
+        val existing = _allUsers.value.find { it.email.equals(trimmedEmail, ignoreCase = true) }
+        if (existing != null) {
+            onResult(false, "Yeh email matching user already registered hai.")
+            return
+        }
+
+        val rawUid = "sim_" + System.currentTimeMillis()
+        val newUser = AppUser(
+            uid = rawUid,
+            email = trimmedEmail,
+            status = status,
+            role = "USER"
+        )
+
+        val updatedList = _allUsers.value.toMutableList().apply { add(newUser) }
+        saveUsersToStore(updatedList)
+        saveLocalPassword(trimmedEmail, pass)
+        onResult(true, null)
     }
 }
