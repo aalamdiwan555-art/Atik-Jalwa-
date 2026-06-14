@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -62,7 +63,10 @@ object AuthManager {
 
     private lateinit var prefs: SharedPreferences
     private var firebaseAuth: FirebaseAuth? = null
+    private var firebaseFirestore: FirebaseFirestore? = null
     private var isFirebaseAvailable = false
+    private var isFirestoreAvailable = false
+    private var applicationContext: Context? = null
 
     private val _currentUser = MutableStateFlow<AppUser?>(null)
     val currentUser: StateFlow<AppUser?> = _currentUser.asStateFlow()
@@ -73,22 +77,83 @@ object AuthManager {
     private val _paymentRequests = MutableStateFlow<List<PaymentRequest>>(emptyList())
     val paymentRequests: StateFlow<List<PaymentRequest>> = _paymentRequests.asStateFlow()
 
+    // Strong reference to live state observer for local storage
+    private val preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == KEY_USER_LIST || key == KEY_PAYMENT_REQUESTS || key == KEY_CURRENT_USER_UID || key == "is_app_activated" || key == "app_activated_expiry") {
+            Log.d(TAG, "Local storage changed externally for key: $key. Refreshing state.")
+            refreshFromLocalStorage()
+        }
+    }
+
+    fun refreshFromLocalStorage() {
+        if (!::prefs.isInitialized) return
+        loadUsersFromStore()
+        loadPaymentRequestsFromStore()
+        restoreActiveSession()
+    }
+
     fun initialize(context: Context) {
+        applicationContext = context.applicationContext
         prefs = context.applicationContext.getSharedPreferences(PREF_AUTH, Context.MODE_PRIVATE)
+        prefs.registerOnSharedPreferenceChangeListener(preferenceChangeListener)
         
         // 1. Safe detection and initialization of Firebase App SDK
         try {
             val apps = FirebaseApp.getApps(context)
             if (apps.isNotEmpty()) {
                 firebaseAuth = FirebaseAuth.getInstance()
+                firebaseFirestore = FirebaseFirestore.getInstance()
                 isFirebaseAvailable = true
-                Log.d(TAG, "Firebase Auth library successfully bound and ready.")
+                isFirestoreAvailable = true
+                Log.d(TAG, "Firebase Auth & Firestore libraries successfully bound and ready.")
             } else {
-                Log.w(TAG, "No default FirebaseApp configuration found. Running in localized high-fidelity debug simulator.")
+                // Initialize programmatically from BuildConfig if available
+                val apiKey = try { BuildConfig.FIREBASE_API_KEY } catch (e: Exception) { "" }
+                val projectId = try { BuildConfig.FIREBASE_PROJECT_ID } catch (e: Exception) { "" }
+                val appId = try { BuildConfig.FIREBASE_APP_ID } catch (e: Exception) { "" }
+
+                if (apiKey.isNotEmpty() && apiKey != "MY_FIREBASE_API_KEY" &&
+                    projectId.isNotEmpty() && projectId != "MY_FIREBASE_PROJECT_ID" &&
+                    appId.isNotEmpty() && appId != "MY_FIREBASE_APP_ID"
+                ) {
+                    val options = com.google.firebase.FirebaseOptions.Builder()
+                        .setApiKey(apiKey)
+                        .setProjectId(projectId)
+                        .setApplicationId(appId)
+                        .build()
+                    FirebaseApp.initializeApp(context, options)
+                    firebaseAuth = FirebaseAuth.getInstance()
+                    firebaseFirestore = FirebaseFirestore.getInstance()
+                    isFirebaseAvailable = true
+                    isFirestoreAvailable = true
+                    Log.i(TAG, "Firebase successfully initialized dynamically from BuildConfig secrets!")
+                } else {
+                    // Try to restore from dynamic user Settings inputs saved in SharedPreferences
+                    val savedApiKey = prefs.getString("dynamic_firebase_api_key", "") ?: ""
+                    val savedProjectId = prefs.getString("dynamic_firebase_project_id", "") ?: ""
+                    val savedAppId = prefs.getString("dynamic_firebase_app_id", "") ?: ""
+
+                    if (savedApiKey.isNotEmpty() && savedProjectId.isNotEmpty() && savedAppId.isNotEmpty()) {
+                        val options = com.google.firebase.FirebaseOptions.Builder()
+                            .setApiKey(savedApiKey)
+                            .setProjectId(savedProjectId)
+                            .setApplicationId(savedAppId)
+                            .build()
+                        FirebaseApp.initializeApp(context, options)
+                        firebaseAuth = FirebaseAuth.getInstance()
+                        firebaseFirestore = FirebaseFirestore.getInstance()
+                        isFirebaseAvailable = true
+                        isFirestoreAvailable = true
+                        Log.i(TAG, "Firebase successfully initialized dynamically from custom Settings!")
+                    } else {
+                        Log.w(TAG, "No default or dynamic FirebaseApp configuration found. Running in localized high-fidelity debug simulator.")
+                    }
+                }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Firebase initialization skipped or missing keys/google-services.json (${e.message}). Falling back to local debug mode.")
+            Log.w(TAG, "Firebase initialization error (${e.message}). Falling back to local debug mode.")
             isFirebaseAvailable = false
+            isFirestoreAvailable = false
         }
 
         // 2. Load registered users catalog
@@ -107,6 +172,9 @@ object AuthManager {
 
         // 5. Try to restore active user session
         restoreActiveSession()
+
+        // 6. Start listening to users collections in Cloud Firestore
+        startFirestoreUsersListener()
     }
 
     private fun loadUsersFromStore() {
@@ -139,10 +207,13 @@ object AuthManager {
         _allUsers.value = list
     }
 
-    private fun saveUsersToStore(users: List<AppUser>) {
+    private fun saveUsersToStore(users: List<AppUser>, syncToCloud: Boolean = true) {
         _allUsers.value = users
         val stringSet = users.map { "${it.uid}|${it.email}|${it.status.name}|${it.role}|${it.subscriptionExpiry}|${it.customUserId}|${it.name}" }.toSet()
         prefs.edit().putStringSet(KEY_USER_LIST, stringSet).apply()
+        if (syncToCloud) {
+            users.forEach { syncUserToFirestore(it) }
+        }
     }
 
     private fun loadPaymentRequestsFromStore() {
@@ -231,45 +302,55 @@ object AuthManager {
 
     private fun restoreActiveSession() {
         val storedUid = prefs.getString(KEY_CURRENT_USER_UID, null)
+        val sessionToken = prefs.getString("auth_session_token", null)
+        
         if (storedUid != null) {
-            if (storedUid == "admin_super") {
-                _currentUser.value = AppUser(
-                    uid = "admin_super",
-                    email = "Admin (${getAdminMobile()})",
-                    status = UserStatus.APPROVED,
-                    role = "ADMIN"
-                )
-                return
-            }
-            if (storedUid == "admin_diwan") {
-                _currentUser.value = AppUser(
-                    uid = "admin_diwan",
-                    email = "aalamdiwan555@gmail.com",
-                    status = UserStatus.APPROVED,
-                    role = "ADMIN"
-                )
-                return
-            }
-            val user = _allUsers.value.find { it.uid == storedUid }
-            _currentUser.value = user
-            return
-        }
-
-        if (isFirebaseAvailable && firebaseAuth != null) {
-            val fbUser = firebaseAuth?.currentUser
-            if (fbUser != null) {
-                val email = fbUser.email ?: ""
-                val uid = fbUser.uid
-                val localUser = _allUsers.value.find { it.uid == uid }
-                if (localUser != null) {
-                    _currentUser.value = localUser
+            // Verify session token integrity
+            val isSessionValid = sessionToken != null && sessionToken.startsWith("sess_") && sessionToken.contains(storedUid)
+            
+            if (isSessionValid) {
+                // Find matching user record
+                val user = if (storedUid == "admin_super") {
+                    AppUser(
+                        uid = "admin_super",
+                        email = "Admin (${getAdminMobile()})",
+                        status = UserStatus.APPROVED,
+                        role = "ADMIN"
+                    )
+                } else if (storedUid == "admin_diwan") {
+                    AppUser(
+                        uid = "admin_diwan",
+                        email = "aalamdiwan555@gmail.com",
+                        status = UserStatus.APPROVED,
+                        role = "ADMIN"
+                    )
                 } else {
-                    val newUser = AppUser(uid, email, UserStatus.PENDING, if (email.contains("admin")) "ADMIN" else "USER")
-                    val updatedList = _allUsers.value.toMutableList().apply { add(newUser) }
-                    saveUsersToStore(updatedList)
-                    _currentUser.value = newUser
+                    _allUsers.value.find { it.uid == storedUid }
                 }
-                return
+
+                if (user != null) {
+                    // Check if subscription resides in active state
+                    val isSubscriptionValid = if (user.role == "ADMIN") {
+                        true
+                    } else {
+                        user.subscriptionExpiry > System.currentTimeMillis() || isAppActivated()
+                    }
+
+                    if (isSubscriptionValid) {
+                        Log.i(TAG, "Persistent login verified with valid subscription for user: ${user.email}. Bypassing login screen.")
+                        _currentUser.value = user
+                        return
+                    } else {
+                        Log.i(TAG, "Unsubscribing/Expiring session login bypass since subscription is inactive. Login screen mandatory.")
+                        _currentUser.value = null
+                    }
+                } else {
+                    Log.w(TAG, "No associated user found for active session token.")
+                    _currentUser.value = null
+                }
+            } else {
+                Log.d(TAG, "No valid session token found for stored authentication. Login screen is required.")
+                _currentUser.value = null
             }
         }
     }
@@ -333,6 +414,7 @@ object AuthManager {
                             saveUsersToStore(updatedList)
                             saveLocalPassword(trimmedEmail, password)
                             _currentUser.value = newUser
+                            applicationContext?.let { PersistentAuthService.createSession(it, uid) }
                             onResult(true, null)
                         } else {
                             onResult(false, "User accounts mismatch")
@@ -365,6 +447,7 @@ object AuthManager {
             
             _currentUser.value = newUser
             prefs.edit().putString(KEY_CURRENT_USER_UID, rawUid).apply()
+            applicationContext?.let { PersistentAuthService.createSession(it, rawUid) }
             
             onResult(true, null)
         }
@@ -387,6 +470,7 @@ object AuthManager {
             )
             _currentUser.value = adminUser
             prefs.edit().putString(KEY_CURRENT_USER_UID, "admin_diwan").apply()
+            applicationContext?.let { PersistentAuthService.createSession(it, "admin_diwan") }
             
             val exists = _allUsers.value.any { it.uid == "admin_diwan" }
             if (!exists) {
@@ -407,6 +491,7 @@ object AuthManager {
                             val existing = _allUsers.value.find { it.uid == uid }
                             if (existing != null) {
                                 _currentUser.value = existing
+                                applicationContext?.let { PersistentAuthService.createSession(it, existing.uid) }
                                 onResult(true, null)
                             } else {
                                 val isDefaultAdmin = trimmedEmail.startsWith("admin")
@@ -419,6 +504,7 @@ object AuthManager {
                                 val updatedList = _allUsers.value.toMutableList().apply { add(newUser) }
                                 saveUsersToStore(updatedList)
                                 _currentUser.value = newUser
+                                applicationContext?.let { PersistentAuthService.createSession(it, newUser.uid) }
                                 onResult(true, null)
                             }
                         }
@@ -439,6 +525,7 @@ object AuthManager {
                     }
                     _currentUser.value = existing
                     prefs.edit().putString(KEY_CURRENT_USER_UID, existing.uid).apply()
+                    applicationContext?.let { PersistentAuthService.createSession(it, existing.uid) }
                     onResult(true, null)
                 }
             } else {
@@ -453,12 +540,13 @@ object AuthManager {
         }
         _currentUser.value = null
         prefs.edit().remove(KEY_CURRENT_USER_UID).apply()
+        applicationContext?.let { PersistentAuthService.clearSession(it) }
     }
 
     fun signInWithGoogle(email: String, onResult: (Boolean, String?) -> Unit) {
         val trimmedEmail = email.trim()
         val isAdmin = trimmedEmail.equals("aalamdiwan555@gmail.com", ignoreCase = true)
-        val targetUid = if (isAdmin) "admin_diwan" else "google_" + System.currentTimeMillis()
+        val targetUid = if (isAdmin) "admin_diwan" else "google_" + kotlin.math.abs(trimmedEmail.hashCode())
         val googleUser = AppUser(
             uid = targetUid,
             email = trimmedEmail,
@@ -467,18 +555,19 @@ object AuthManager {
         )
         _currentUser.value = googleUser
         prefs.edit().putString(KEY_CURRENT_USER_UID, targetUid).apply()
+        applicationContext?.let { PersistentAuthService.createSession(it, targetUid) }
         
-        val exists = _allUsers.value.any { it.uid == targetUid || it.email.equals(trimmedEmail, ignoreCase = true) }
+        val exists = _allUsers.value.any { it.email.equals(trimmedEmail, ignoreCase = true) }
         if (!exists) {
             val updatedList = _allUsers.value.toMutableList().apply { add(googleUser) }
-            saveUsersToStore(updatedList)
+            saveUsersToStore(updatedList, syncToCloud = true)
         } else {
             val updatedList = _allUsers.value.map {
                 if (it.email.equals(trimmedEmail, ignoreCase = true)) {
                     it.copy(role = if (isAdmin) "ADMIN" else it.role, status = UserStatus.APPROVED)
                 } else it
             }
-            saveUsersToStore(updatedList)
+            saveUsersToStore(updatedList, syncToCloud = true)
         }
         onResult(true, null)
     }
@@ -518,9 +607,7 @@ object AuthManager {
         if (cur != null) {
             val userRecord = _allUsers.value.find { it.uid == cur.uid }
             val expiry = userRecord?.subscriptionExpiry ?: 0L
-            if (expiry > 0L) {
-                return System.currentTimeMillis() < expiry
-            }
+            return expiry > System.currentTimeMillis()
         }
         
         // Fallback to global/device-wide key (backwards compatible)
@@ -559,6 +646,11 @@ object AuthManager {
             .apply()
     }
 
+    fun getSubscriptionStartTime(uid: String): Long {
+        if (!::prefs.isInitialized) return 0L
+        return prefs.getLong("sub_start_$uid", 0L)
+    }
+
     fun updateUserSubscription(uid: String, expiryTime: Long) {
         if (!::prefs.isInitialized) return
         val currentList = _allUsers.value.toMutableList()
@@ -567,6 +659,16 @@ object AuthManager {
             val updatedUser = currentList[index].copy(subscriptionExpiry = expiryTime)
             currentList[index] = updatedUser
             saveUsersToStore(currentList)
+            
+            // Persist subscription start time in local storage (SharedPreferences)
+            if (expiryTime > System.currentTimeMillis()) {
+                val existingStart = prefs.getLong("sub_start_$uid", 0L)
+                if (existingStart == 0L || existingStart >= expiryTime) {
+                    prefs.edit().putLong("sub_start_$uid", System.currentTimeMillis()).apply()
+                }
+            } else {
+                prefs.edit().remove("sub_start_$uid").apply()
+            }
             
             // Refreshes session state if editing currently authenticated user
             val cur = _currentUser.value
@@ -609,6 +711,7 @@ object AuthManager {
             )
             _currentUser.value = adminUser
             prefs.edit().putString(KEY_CURRENT_USER_UID, "admin_super").apply()
+            applicationContext?.let { PersistentAuthService.createSession(it, "admin_super") }
             
             // Ensure this admin is saved as well in SharedPreferences registry
             val exists = _allUsers.value.any { it.uid == "admin_super" }
@@ -644,5 +747,131 @@ object AuthManager {
         saveUsersToStore(updatedList)
         saveLocalPassword(trimmedEmail, pass)
         onResult(true, null)
+    }
+
+    fun getDynamicFirebaseConfig(): Triple<String, String, String> {
+        if (!::prefs.isInitialized) return Triple("", "", "")
+        val apiKey = prefs.getString("dynamic_firebase_api_key", "") ?: ""
+        val projectId = prefs.getString("dynamic_firebase_project_id", "") ?: ""
+        val appId = prefs.getString("dynamic_firebase_app_id", "") ?: ""
+        return Triple(apiKey, projectId, appId)
+    }
+
+    fun saveDynamicFirebaseConfig(apiKey: String, projectId: String, appId: String): Boolean {
+        if (!::prefs.isInitialized) return false
+        prefs.edit()
+            .putString("dynamic_firebase_api_key", apiKey.trim())
+            .putString("dynamic_firebase_project_id", projectId.trim())
+            .putString("dynamic_firebase_app_id", appId.trim())
+            .apply()
+        
+        val ctx = applicationContext
+        return if (ctx != null && apiKey.trim().isNotEmpty() && projectId.trim().isNotEmpty() && appId.trim().isNotEmpty()) {
+            try {
+                val options = com.google.firebase.FirebaseOptions.Builder()
+                    .setApiKey(apiKey.trim())
+                    .setProjectId(projectId.trim())
+                    .setApplicationId(appId.trim())
+                    .build()
+                
+                try {
+                    val app = FirebaseApp.getInstance()
+                    app.delete()
+                } catch (e: Exception) {}
+                
+                FirebaseApp.initializeApp(ctx, options)
+                firebaseAuth = FirebaseAuth.getInstance()
+                firebaseFirestore = FirebaseFirestore.getInstance()
+                isFirebaseAvailable = true
+                isFirestoreAvailable = true
+                Log.i(TAG, "Firebase Auth and Firestore successfully re-initialized dynamically from Settings input!")
+                startFirestoreUsersListener()
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to re-initialize Firebase dynamically: ${e.message}")
+                isFirebaseAvailable = false
+                isFirestoreAvailable = false
+                false
+            }
+        } else {
+            isFirebaseAvailable = false
+            isFirestoreAvailable = false
+            false
+        }
+    }
+
+    fun isFirebaseActive(): Boolean {
+        return isFirebaseAvailable && firebaseAuth != null
+    }
+
+    fun syncUserToFirestore(user: AppUser) {
+        if (isFirestoreAvailable && firebaseFirestore != null) {
+            try {
+                val data = hashMapOf(
+                    "uid" to user.uid,
+                    "email" to user.email,
+                    "status" to user.status.name,
+                    "role" to user.role,
+                    "subscriptionExpiry" to user.subscriptionExpiry,
+                    "customUserId" to user.customUserId,
+                    "name" to user.name
+                )
+                firebaseFirestore?.collection("users")?.document(user.uid)?.set(data)
+                    ?.addOnSuccessListener {
+                        Log.d(TAG, "User ${user.email} synced to Firestore successfully.")
+                    }
+                    ?.addOnFailureListener { e ->
+                        Log.w(TAG, "Error syncing user to Firestore: ${e.message}")
+                    }
+            } catch (e: Exception) {
+                Log.e(TAG, "Firestore sync exception: ${e.message}")
+            }
+        }
+    }
+
+    fun startFirestoreUsersListener() {
+        if (isFirestoreAvailable && firebaseFirestore != null) {
+            try {
+                firebaseFirestore?.collection("users")
+                    ?.addSnapshotListener { snapshots, e ->
+                        if (e != null) {
+                            Log.w(TAG, "Listen failed.", e)
+                            return@addSnapshotListener
+                        }
+                        if (snapshots != null) {
+                            val list = mutableListOf<AppUser>()
+                            for (doc in snapshots) {
+                                try {
+                                    val uid = doc.getString("uid") ?: doc.id
+                                    val email = doc.getString("email") ?: ""
+                                    val statusStr = doc.getString("status") ?: "PENDING"
+                                    val roleStr = doc.getString("role") ?: "USER"
+                                    val exp = doc.getLong("subscriptionExpiry") ?: 0L
+                                    val customId = doc.getString("customUserId") ?: ""
+                                    val nameVal = doc.getString("name") ?: ""
+                                    list.add(
+                                        AppUser(
+                                            uid = uid,
+                                            email = email,
+                                            status = UserStatus.valueOf(statusStr),
+                                            role = roleStr,
+                                            subscriptionExpiry = exp,
+                                            customUserId = customId,
+                                            name = nameVal
+                                        )
+                                    )
+                                } catch (ex: Exception) {
+                                    Log.e(TAG, "Error parsing Firestore user document: ${ex.message}")
+                                }
+                            }
+                            if (list.isNotEmpty()) {
+                                saveUsersToStore(list, syncToCloud = false)
+                            }
+                        }
+                    }
+            } catch (e: Exception) {
+                Log.e(TAG, "Firestore listener setup failed: ${e.message}")
+            }
+        }
     }
 }
