@@ -435,26 +435,50 @@ class DrClickerAccessibilityService : AccessibilityService() {
             }
         }
 
-        // Apply sensible fallback defaults if contextual markers weren't explicitly found but numbers are on-screen
-        if (detectedFare != null) {
-            val pickupVal = detectedPickupKm ?: 0.5f // Fallback to 0.5km pickup proximity if missing
-            val dropVal = detectedDropKm ?: 4.0f     // Fallback to 4.0km drop distance if missing
+        val appLabel = if (matchedApp != null) "[${matchedApp.name.uppercase()}] " else "[ALL-APPS] "
 
-            val minPrice = DrClickerController.minPrice.value
-            val maxPrice = DrClickerController.maxPrice.value
-            val maxPickup = DrClickerController.maxPickupDistance.value
-            val maxDrop = DrClickerController.maxDropDistance.value
+        // If targetActionButton is found on screen, evaluate if we can trigger the action path or if filters reject it.
+        if (targetActionButton != null) {
+            val shouldClick: Boolean
+            val reason: String
 
-            // 4. MODULE 4 CONDITIONAL CHECK BLOCK
-            val satisfiesFilters = (detectedFare >= minPrice) && 
-                                   (detectedFare <= maxPrice) && 
-                                   (pickupVal <= maxPickup) && 
-                                   (dropVal <= maxDrop) && 
-                                   orderKeywordSatisfied
+            if (detectedFare != null) {
+                val pickupVal = detectedPickupKm ?: 0.5f // Fallback to 0.5km pickup proximity if missing
+                val dropVal = detectedDropKm ?: 4.0f     // Fallback to 4.0km drop distance if missing
 
-            val appLabel = if (matchedApp != null) "[${matchedApp.name.uppercase()}] " else "[ALL-APPS] "
+                val minPrice = DrClickerController.minPrice.value
+                val maxPrice = DrClickerController.maxPrice.value
+                val maxPickup = DrClickerController.maxPickupDistance.value
+                val maxDrop = DrClickerController.maxDropDistance.value
 
-            if (satisfiesFilters) {
+                val satisfiesFilters = (detectedFare >= minPrice) && 
+                                       (detectedFare <= maxPrice) && 
+                                       (pickupVal <= maxPickup) && 
+                                       (dropVal <= maxDrop) && 
+                                       orderKeywordSatisfied
+
+                shouldClick = satisfiesFilters
+                reason = if (satisfiesFilters) {
+                    "Match Found! Price ₹$detectedFare, Pickup ${pickupVal}KM, Ride ${dropVal}KM. Sub-Filters satisfied. Matching keywords: '$orderKeywordSummary'."
+                } else {
+                    if (!orderKeywordSatisfied) {
+                        "Order accepting keywords mismatch (required one of: $orderKeywordSummary)"
+                    } else {
+                        "Filters mismatch: Price ₹$detectedFare (Min: ₹$minPrice), Pickup ${pickupVal}KM (Max: ${maxPickup}KM), Drop ${dropVal}KM (Max: ${maxDrop}KM)"
+                    }
+                }
+            } else {
+                // If NO fare value is detected/parsed on screen, check if the general order keywords match (if specified),
+                // otherwise trigger the click unconditionally to ensure we NEVER miss any active request!
+                shouldClick = orderKeywordSatisfied
+                reason = if (orderKeywordSatisfied) {
+                    "Instant Accept! Action button found on screen matching keyword."
+                } else {
+                    "Ignoring: Target button found but general order keywords not found on-screen."
+                }
+            }
+
+            if (shouldClick) {
                 if (DrClickerController.adPoints.value <= 0) {
                     DrClickerController.logEvent(
                         "${appLabel}MATCH FOUND! Lekin aapke paas accept points nahi hain (0 remains). Watch ads to earn points!",
@@ -462,12 +486,9 @@ class DrClickerAccessibilityService : AccessibilityService() {
                     )
                     return
                 }
-                
-                DrClickerController.logEvent(
-                    "${appLabel}MATCH FOUND! Price ₹$detectedFare, Pickup ${pickupVal}KM, Ride ${dropVal}KM. Sub-Filters satisfied. Matching keywords: '$orderKeywordSummary'.",
-                    true
-                )
-                
+
+                DrClickerController.logEvent("${appLabel}$reason", true)
+
                 // Save match to local persistence
                 val appNameString = matchedApp?.name ?: "Unknown"
                 val offerId = "job_" + System.currentTimeMillis() + "_" + (100..999).random()
@@ -475,33 +496,17 @@ class DrClickerAccessibilityService : AccessibilityService() {
                     id = offerId,
                     timestamp = System.currentTimeMillis(),
                     appName = appNameString,
-                    fare = detectedFare,
-                    pickupDistance = pickupVal,
-                    dropDistance = dropVal,
+                    fare = detectedFare ?: 0,
+                    pickupDistance = detectedPickupKm ?: 0.5f,
+                    dropDistance = detectedDropKm ?: 4.0f,
                     satisfiesFilters = true,
-                    reason = "Match Found! Filters and keywords fully satisfied."
+                    reason = reason
                 )
                 JobOfferStorage.saveOffer(this@DrClickerAccessibilityService, jobOffer)
-                
-                if (targetActionButton != null) {
-                    // Start natural human touch routine with speed acceleration on urgency
-                    triggerHumanlikeGesture(targetActionButton, hasTimerUrgency, matchedApp?.isSwipe ?: false)
-                } else {
-                    // If no explicit keyword button, pick the safest clickable container node
-                    val generalClickable = nodes.firstOrNull { it.isClickable }
-                    if (generalClickable != null) {
-                        triggerHumanlikeGesture(generalClickable, hasTimerUrgency, matchedApp?.isSwipe ?: false)
-                    } else {
-                        DrClickerController.logEvent("${appLabel}Match found but no clickable action element isolated on screen.", false)
-                    }
-                }
+
+                // Start natural human touch routine with speed acceleration on urgency
+                triggerHumanlikeGesture(targetActionButton, hasTimerUrgency, matchedApp?.isSwipe ?: false)
             } else {
-                val reason = if (!orderKeywordSatisfied) {
-                    "Order accepting keywords mismatch (required one of: $orderKeywordSummary)"
-                } else {
-                    "Filters mismatch: Price ₹$detectedFare (Min: ₹$minPrice), Pickup ${pickupVal}KM (Max: ${maxPickup}KM), Drop ${dropVal}KM (Max: ${maxDrop}KM)"
-                }
-                
                 DrClickerController.logEvent(
                     "${appLabel}Card Ignored: $reason",
                     false
@@ -514,13 +519,22 @@ class DrClickerAccessibilityService : AccessibilityService() {
                     id = offerId,
                     timestamp = System.currentTimeMillis(),
                     appName = appNameString,
-                    fare = detectedFare,
-                    pickupDistance = pickupVal,
-                    dropDistance = dropVal,
+                    fare = detectedFare ?: 0,
+                    pickupDistance = detectedPickupKm ?: 0.5f,
+                    dropDistance = detectedDropKm ?: 4.0f,
                     satisfiesFilters = false,
                     reason = reason
                 )
                 JobOfferStorage.saveOffer(this@DrClickerAccessibilityService, jobOffer)
+            }
+        } else {
+            // Check if there is any other clickable element matching basic patterns when we have incoming order keyword
+            if (orderKeywordSatisfied && screenTextCombined.contains("ACCEPT")) {
+                val generalClickable = nodes.firstOrNull { it.isClickable }
+                if (generalClickable != null) {
+                    DrClickerController.logEvent("${appLabel}Order accept keywords found, clicking general interactive element.", true)
+                    triggerHumanlikeGesture(generalClickable, hasTimerUrgency, matchedApp?.isSwipe ?: false)
+                }
             }
         }
     }
