@@ -9,35 +9,35 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.graphics.Color
 import com.example.DrClickerController
 
-// Cosmic Space / Celestial Midnight Theme
+// Turbo Cyber Green & High-Voltage Electric Amber Theme (Highly fast & performance-oriented)
 private val MagicalDarkColorScheme =
   darkColorScheme(
-    primary = Color(0xFFB55CFF),       // Luminous Astral Violet
-    secondary = Color(0xFFFF499E),     // Nebula Neon Pink
-    tertiary = Color(0xFF00F5D4),      // Magical Aurora Mint/Cyan
-    background = Color(0xFF070014),    // Infinite Deep Space Black
-    surface = Color(0xFF120B28),       // Cozy Star-Dust Obsidian Purple
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onBackground = Color(0xFFF3E8FF),  // Soft Celestial Lavender Text
-    onSurface = Color(0xFFF3E8FF),     // Soft Celestial Lavender Text
-    surfaceVariant = Color(0xFF221545),// Starry sky deep velvet variant
-    onSurfaceVariant = Color(0xFF00F5D4) // Luminous mint highlights
+    primary = Color(0xFF00FF87),       // Supercharging Turbo Neon Green
+    secondary = Color(0xFFFFD700),     // High-Voltage Electric Gold / Yellow
+    tertiary = Color(0xFF00E5FF),      // Lightning Cyber Blue / Cyan
+    background = Color(0xFF060913),    // Rich Obsidian Onyx Deep
+    surface = Color(0xFF0F1626),       // Deep Space Starry Steel Card
+    onPrimary = Color(0xFF05080E),     // Deep onyx contrast
+    onSecondary = Color(0xFF05080E),   // Deep onyx contrast
+    onBackground = Color(0xFFECEFF1),  // Soft Starry Ice White Text
+    onSurface = Color(0xFFECEFF1),     // Soft Starry Ice White Text
+    surfaceVariant = Color(0xFF1E293B),// Starry sky deep velvet variant
+    onSurfaceVariant = Color(0xFF00FF87) // Luminous mint highlights
   )
 
 private val MagicalLightColorScheme =
   lightColorScheme(
-    primary = Color(0xFF8B00FF),       // Radiant Royal Violet
-    secondary = Color(0xFFE8117F),     // Sweet Orchid Pink
-    tertiary = Color(0xFF00A896),      // Aurorabeam Teal
-    background = Color(0xFFF9F7FC),    // Cosmic Pearl Pink-White
+    primary = Color(0xFF00A254),       // Solid Premium Mint Green
+    secondary = Color(0xFFC48B00),     // Polished Amber / Gold
+    tertiary = Color(0xFF00838F),      // Dark Cyber Teal
+    background = Color(0xFFF1F5F9),    // Crisp Light Slate Gray
     surface = Color(0xFFFFFFFF),       // Clear Aurora White
     onPrimary = Color.White,
     onSecondary = Color.White,
-    onBackground = Color(0xFF1B0330),  // Deep Violet Velvet Text
-    onSurface = Color(0xFF1B0330),     // Deep Violet Velvet Text
-    surfaceVariant = Color(0xFFEDE7F6),// Pearl violet container
-    onSurfaceVariant = Color(0xFF8B00FF)
+    onBackground = Color(0xFF0F172A),  // Deep Slate Obsidian Text
+    onSurface = Color(0xFF0F172A),     // Deep Slate Obsidian Text
+    surfaceVariant = Color(0xFFE2E8F0),// Container steel border
+    onSurfaceVariant = Color(0xFF00A254)
   )
 
 @Composable
