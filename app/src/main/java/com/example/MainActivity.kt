@@ -1,5 +1,19 @@
 package com.example
 
+import com.google.android.gms.ads.MobileAds
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.AdView
+import com.google.android.gms.ads.AdSize
+import com.google.android.gms.ads.interstitial.InterstitialAd
+import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
+import com.google.android.gms.ads.rewarded.RewardedAd
+import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
+import com.google.android.gms.ads.appopen.AppOpenAd
+import com.google.android.gms.ads.appopen.AppOpenAd.AppOpenAdLoadCallback
+import com.google.android.gms.ads.LoadAdError
+import com.google.android.gms.ads.FullScreenContentCallback
+
+import android.app.Activity
 import android.accessibilityservice.AccessibilityService
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -103,6 +117,9 @@ class MainActivity : ComponentActivity() {
         AuthManager.initialize(this)
         JobOfferStorage.initialize(this)
         
+        // Initialize AdMob Mobile Ads SDK
+        AdMobManager.initialize(this)
+        
         // Start background subscription timer monitoring service module
         startService(Intent(this, SubscriptionTimerService::class.java))
 
@@ -127,6 +144,30 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+}
+
+object AdMobManager {
+    fun initialize(context: Context) {
+        Log.d("AdMobManager", "AdMob is disabled per user request. Smart Links will handle ads.")
+    }
+
+    fun loadInterstitial(context: Context) {}
+    fun isInterstitialLoaded(): Boolean = false
+    fun showInterstitial(activity: Activity, onDismiss: () -> Unit) {
+        onDismiss()
+    }
+
+    fun loadRewarded(context: Context) {}
+    fun isRewardedLoaded(): Boolean = false
+    fun showRewarded(activity: Activity, onCompleted: () -> Unit, onDismiss: () -> Unit) {
+        onDismiss()
+    }
+
+    fun loadAppOpen(context: Context) {}
+    fun isAppOpenLoaded(): Boolean = false
+    fun showAppOpen(activity: Activity, onDismiss: () -> Unit) {
+        onDismiss()
     }
 }
 
@@ -2030,10 +2071,25 @@ fun MainDashboardScreen(
     var active10sAdVisible by remember { mutableStateOf(false) }
     var active30sAdVisible by remember { mutableStateOf(false) }
 
-    // Periodic 10-second sponsor interstitial ad loop
+    val isScanning by DrClickerController.isScanning.collectAsState()
+
+    // Trigger immediate & highly frequent sponsored transition ads (0 point credits)
+    // while user is actively scanning/waiting for a ride, to maximize ad revenue
+    LaunchedEffect(isScanning) {
+        if (isScanning) {
+            // Immediately popup a system/in-app sponsored ad when scanning initiates
+            active10sAdVisible = true
+            while (true) {
+                delay(40000) // Every 40 seconds loop while ride waiting is on screen!
+                active10sAdVisible = true
+            }
+        }
+    }
+
+    // Periodic general 10-second sponsor interstitial ad loop (runs background every 90 seconds)
     LaunchedEffect(Unit) {
         while (true) {
-            delay(90000) // Every 90 seconds
+            delay(90000)
             active10sAdVisible = true
         }
     }
@@ -2112,10 +2168,7 @@ fun MainDashboardScreen(
             ) {
                 val items = listOf(
                     Triple("dashboard", "Speed Deck", Icons.Default.Home),
-                    Triple("simulator", "Sandbox", Icons.Default.PlayArrow),
                     Triple("subscriptions", "Premium Pro", Icons.Default.Star),
-                    Triple("rewards", "Rewards", Icons.Default.Share),
-                    Triple("help", "FAQ & AI", Icons.Default.Info),
                     Triple("profile", "ID Card", Icons.Default.Person)
                 )
                 items.forEach { (tabId, label, icon) ->
@@ -2382,48 +2435,11 @@ fun MainDashboardScreen(
                         onTrigger30sAd = { active30sAdVisible = true }
                     )
                 }
-                "simulator" -> {
-                    RapidoSimulatorScreenTab(
-                        neonGreen = neonGreen,
-                        cardBg = cardBg,
-                        context = context
-                    )
-                }
                 "subscriptions" -> {
                     SubscriptionsScreenTab(
                         user = user,
-                        isActivated = isActivated,
-                        remainingTimeText = remainingTimeText,
-                        pendingPayment = pendingPayment,
-                        onOpenPayment = { /* Already integrated locally */ },
-                        neonGreen = neonGreen,
-                        cardBg = cardBg,
-                        context = context
-                    )
-                }
-                "rewards" -> {
-                    ReferAndRewardsScreen(
-                        user = user,
-                        onOpenSubscriptions = { selectedTab = "subscriptions" },
-                        neonGreen = neonGreen,
-                        cardBg = cardBg,
-                        context = context
-                    )
-                }
-                "help" -> {
-                    HelpAndAssistanceScreen(
-                        onOpenFAQ = { /* Controlled by tabs internally */ },
-                        onRequestAccessibility = {
-                            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                            context.startActivity(intent)
-                        },
-                        onRequestOverlay = {
-                            val intent = Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:${context.packageName}")
-                            )
-                            context.startActivity(intent)
-                        },
+                        onTrigger10sAd = { active10sAdVisible = true },
+                        onTrigger30sAd = { active30sAdVisible = true },
                         neonGreen = neonGreen,
                         cardBg = cardBg,
                         context = context
@@ -2453,17 +2469,45 @@ fun MainDashboardScreen(
             }
         }
 
+        val activity = context as? Activity
         if (active10sAdVisible) {
-            TenSecSponsorInterstitialAdDialog(onDismiss = { active10sAdVisible = false })
+            if (activity != null && AdMobManager.isInterstitialLoaded()) {
+                LaunchedEffect(active10sAdVisible) {
+                    AdMobManager.showInterstitial(activity, onDismiss = {
+                        Toast.makeText(context, "Sponsor Ad completed! Automation service unlocked.", Toast.LENGTH_LONG).show()
+                        active10sAdVisible = false
+                    })
+                }
+            } else {
+                TenSecSponsorInterstitialAdDialog(onDismiss = {
+                    Toast.makeText(context, "Sponsor Ad completed! Automation service unlocked.", Toast.LENGTH_LONG).show()
+                    active10sAdVisible = false
+                })
+            }
         }
         if (active30sAdVisible) {
-            ThirtySecRewardedAdDialog(
-                onComplete = {
-                    DrClickerController.addPoints(5)
-                    Toast.makeText(context, "Mubarak ho! +5 Ride Accept points successfully loaded into your driver ledger!", Toast.LENGTH_LONG).show()
-                },
-                onDismiss = { active30sAdVisible = false }
-            )
+            if (activity != null && AdMobManager.isRewardedLoaded()) {
+                LaunchedEffect(active30sAdVisible) {
+                    AdMobManager.showRewarded(
+                        activity,
+                        onCompleted = {
+                            DrClickerController.addPoints(1)
+                            Toast.makeText(context, "Mubarak ho! +1 Ride Accept point successfully loaded into your driver ledger!", Toast.LENGTH_LONG).show()
+                        },
+                        onDismiss = {
+                            active30sAdVisible = false
+                        }
+                    )
+                }
+            } else {
+                ThirtySecRewardedAdDialog(
+                    onComplete = {
+                        DrClickerController.addPoints(1)
+                        Toast.makeText(context, "Mubarak ho! +1 Ride Accept point successfully loaded into your driver ledger!", Toast.LENGTH_LONG).show()
+                    },
+                    onDismiss = { active30sAdVisible = false }
+                )
+            }
         }
     }
 }
@@ -2507,6 +2551,9 @@ fun DashboardContentTab(
     var addKeywordsInput by remember { mutableStateOf("") }
     var addScreenshotUriInput by remember { mutableStateOf("") }
 
+    var showAppSettingsDialog by remember { mutableStateOf(false) }
+    var showEarnPointsDialog by remember { mutableStateOf(false) }
+
     val addScreenshotLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -2539,7 +2586,7 @@ fun DashboardContentTab(
         Spacer(modifier = Modifier.height(14.dp))
 
         Text(
-            text = "DR.CLICKER",
+            text = "DR.CLICKER PRO",
             fontSize = 32.sp,
             color = neonGreen,
             fontWeight = FontWeight.Black,
@@ -2557,494 +2604,541 @@ fun DashboardContentTab(
             modifier = Modifier.padding(top = 4.dp, bottom = 24.dp)
         )
 
-        // CARD 2: CONFIGURE CRITERIA FILTERS CARD (Distance, Price, App Settings & Click/Swipe)
+        // STATUS SUMMARY CARD
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 16.dp),
-            shape = RoundedCornerShape(18.dp),
+                .padding(bottom = 20.dp),
+            shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = cardBg),
-            border = BorderStroke(1.2.dp, neonGreen.copy(alpha = 0.35f))
+            border = BorderStroke(1.2.dp, if (isOverlayServiceRunning) neonGreen.copy(alpha = 0.4f) else Color.DarkGray)
         ) {
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(18.dp)
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Header of Filters Criteria Card
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings Icon",
-                            tint = neonGreen,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Configure Criteria Filters",
-                            color = textColor,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 1.sp
-                        )
-                    }
+                Column {
+                    Text(
+                        text = "STATUS OF SYSTEM",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Gray
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (isOverlayServiceRunning) "ACTIVE RUNNING" else "STOPPED / INACTIVE",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Black,
+                        color = if (isOverlayServiceRunning) neonGreen else Color(0xFFFE3B62)
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "DRIVER LEDGER",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Gray
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "$points Ride Points Available",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Black,
+                        color = neonGreen
+                    )
+                }
+            }
+        }
 
-                    // Add Custom App Button
-                    Button(
-                        onClick = { showAddAppDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = neonGreen.copy(alpha = 0.15f), contentColor = neonGreen),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                        modifier = Modifier.height(30.dp)
+        // 2x2 FUNCTION GRID
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // BUTTON 1: START
+                Card(
+                    onClick = {
+                        if (!hasOverlayPermission || !hasAccessibilityPermission) {
+                            Toast.makeText(context, "Kripya overlay aur accessibility permissions pehle enable karein.", Toast.LENGTH_LONG).show()
+                        } else {
+                            onTrigger10sAd() // Mandatory 10-second sponsor interstitial
+                            onTriggerOverlayService(true)
+                            Toast.makeText(context, "Overlay panel launched successfully!", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.weight(1f).height(110.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isOverlayServiceRunning) neonGreen.copy(alpha = 0.1f) else cardBg
+                    ),
+                    border = BorderStroke(1.2.dp, if (isOverlayServiceRunning) neonGreen else Color.DarkGray)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(14.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("+ ADD NEW APP", fontSize = 10.sp, fontWeight = FontWeight.Black)
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Start",
+                            tint = neonGreen,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "START SERVICE",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = textColor
+                            )
+                            Text(
+                                text = "Launch floating panel",
+                                fontSize = 9.sp,
+                                color = Color.Gray
+                            )
+                        }
                     }
                 }
 
-                Text(
-                    text = "Distance margins, pricing requirements, and individual click/swipe target app actions config.",
-                    color = Color.Gray,
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 14.dp)
-                )
+                // BUTTON 2: STOP
+                Card(
+                    onClick = {
+                        if (isOverlayServiceRunning) {
+                            onTriggerOverlayService(false)
+                            Toast.makeText(context, "Automation stopped.", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "System already stopped.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.weight(1f).height(110.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = cardBg),
+                    border = BorderStroke(1.2.dp, Color.DarkGray)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(14.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Stop",
+                            tint = Color(0xFFFE3B62),
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "STOP SERVICE",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = textColor
+                            )
+                            Text(
+                                text = "Hide floating panels",
+                                fontSize = 9.sp,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                }
+            }
 
-                // ADS REWARDS & LEDGER SECTION inside settings card
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // BUTTON 3: APP SETTINGS
+                Card(
+                    onClick = { showAppSettingsDialog = true },
+                    modifier = Modifier.weight(1f).height(110.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = cardBg),
+                    border = BorderStroke(1.2.dp, Color.DarkGray)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(14.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = Color(0xFFFFB300),
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "APP SETTINGS",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = textColor
+                            )
+                            Text(
+                                text = "KM, Price, App filtering",
+                                fontSize = 9.sp,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                }
+
+                // BUTTON 4: EARN POINT
+                Card(
+                    onClick = { showEarnPointsDialog = true },
+                    modifier = Modifier.weight(1f).height(110.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = cardBg),
+                    border = BorderStroke(1.2.dp, Color.DarkGray)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(14.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = "Rewards",
+                            tint = neonGreen,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "EARN POINT",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = textColor
+                            )
+                            Text(
+                                text = "Claim free points (1ad=1ride)",
+                                fontSize = 9.sp,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // AdMob Banner Space inside Dashboard Screen
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight(),
+            contentAlignment = Alignment.Center
+        ) {
+            AdMobBannerAd()
+        }
+    }
+
+    // DIALOG: APP SETTINGS (KM settings, price settings, and app settings)
+    if (showAppSettingsDialog) {
+        AlertDialog(
+            onDismissRequest = { showAppSettingsDialog = false },
+            containerColor = Color(0xFF0F1626),
+            title = {
+                Text(
+                    text = "⚙️ AUTOMATION FILTER CONTROL",
+                    fontWeight = FontWeight.Black,
+                    fontSize = 16.sp,
+                    color = neonGreen
+                )
+            },
+            text = {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF0F1528))
-                        .border(1.dp, neonGreen.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
-                        .padding(12.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
+                    // KM Setting Header
+                    Text(
+                        text = "📍 DISTANCE LIMITS (KM)",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Gray,
+                        letterSpacing = 1.sp
+                    )
+
+                    // Max Pickup distance boundary
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
                             Text(
-                                text = "ACCEPT PASS POINTS",
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.Gray,
-                                letterSpacing = 1.sp
+                                text = "Max Pickup proximity",
+                                fontSize = 11.sp,
+                                color = Color.LightGray
                             )
-                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "$points Points Available",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Black,
+                                text = "${maxPickupDistance.toInt()} KM",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
                                 color = neonGreen
                             )
                         }
+                        Slider(
+                            value = maxPickupDistance,
+                            onValueChange = { DrClickerController.updateMaxPickupDistance(it) },
+                            valueRange = 1f..50f,
+                            steps = 49,
+                            colors = SliderDefaults.colors(
+                                activeTrackColor = neonGreen,
+                                inactiveTrackColor = Color.DarkGray,
+                                thumbColor = neonGreen
+                            )
+                        )
+                    }
 
-                        Button(
-                            onClick = onTrigger30sAd,
-                            colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier.height(32.dp)
+                    // Max Drop distance boundary
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("📺 +5 PTS (30s AD)", fontSize = 10.sp, fontWeight = FontWeight.Black)
+                            Text(
+                                text = "Max Drop boundary",
+                                fontSize = 11.sp,
+                                color = Color.LightGray
+                            )
+                            Text(
+                                text = "${maxDropDistance.toInt()} KM",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = neonGreen
+                            )
                         }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // SECTION 1: DISTANCE BOUNDARY FILTERS (KM)
-                Text(
-                    text = "📍 DISTANCE BOUNDARY CRITERIA",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Gray,
-                    letterSpacing = 1.sp,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-
-                // Max Pickup distance boundary
-                Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Max Pickup proximity limit",
-                            fontSize = 11.sp,
-                            color = Color.LightGray
-                        )
-                        Text(
-                            text = "${maxPickupDistance.toInt()} KM",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = neonGreen
+                        Slider(
+                            value = maxDropDistance,
+                            onValueChange = { DrClickerController.updateMaxDropDistance(it) },
+                            valueRange = 5f..150f,
+                            steps = 145,
+                            colors = SliderDefaults.colors(
+                                activeTrackColor = neonGreen,
+                                inactiveTrackColor = Color.DarkGray,
+                                thumbColor = neonGreen
+                            )
                         )
                     }
-                    androidx.compose.material3.Slider(
-                        value = maxPickupDistance,
-                        onValueChange = { DrClickerController.updateMaxPickupDistance(it) },
-                        valueRange = 1f..50f,
-                        steps = 49,
-                        colors = androidx.compose.material3.SliderDefaults.colors(
-                            activeTrackColor = neonGreen,
-                            inactiveTrackColor = Color.DarkGray,
-                            thumbColor = neonGreen
-                        )
-                    )
-                }
 
-                // Max Drop distance boundary
-                Column(modifier = Modifier.fillMaxWidth().padding(bottom = 18.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Max Drop delivery limit",
-                            fontSize = 11.sp,
-                            color = Color.LightGray
-                        )
-                        Text(
-                            text = "${maxDropDistance.toInt()} KM",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = neonGreen
-                        )
-                    }
-                    androidx.compose.material3.Slider(
-                        value = maxDropDistance,
-                        onValueChange = { DrClickerController.updateMaxDropDistance(it) },
-                        valueRange = 5f..150f,
-                        steps = 145,
-                        colors = androidx.compose.material3.SliderDefaults.colors(
-                            activeTrackColor = neonGreen,
-                            inactiveTrackColor = Color.DarkGray,
-                            thumbColor = neonGreen
-                        )
-                    )
-                }
+                    Divider(color = Color.DarkGray.copy(alpha = 0.5f), thickness = 1.dp)
 
-                // SECTION 2: PRICE THRESHOLDS (₹)
-                Text(
-                    text = "💸 MIN/MAX PRICE MATCHING",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Gray,
-                    letterSpacing = 1.sp,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    androidx.compose.material3.OutlinedTextField(
-                        value = localMinPrice,
-                        onValueChange = { str ->
-                            val clean = str.filter { it.isDigit() }
-                            localMinPrice = clean
-                            DrClickerController.updateMinPrice(clean.toIntOrNull() ?: 0)
-                        },
-                        label = { Text("Min Price (₹)", fontSize = 11.sp) },
-                        textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 12.sp),
-                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = neonGreen,
-                            unfocusedBorderColor = Color.DarkGray
-                        ),
-                        singleLine = true,
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    androidx.compose.material3.OutlinedTextField(
-                        value = localMaxPrice,
-                        onValueChange = { str ->
-                            val clean = str.filter { it.isDigit() }
-                            localMaxPrice = clean
-                            DrClickerController.updateMaxPrice(clean.toIntOrNull() ?: Int.MAX_VALUE)
-                        },
-                        label = { Text("Max Price (₹)", fontSize = 11.sp) },
-                        textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 12.sp),
-                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = neonGreen,
-                            unfocusedBorderColor = Color.DarkGray
-                        ),
-                        singleLine = true,
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // SECTION 3: CHOOSE ACTIVE TARGET APPS (Tap/Click vs Swipe action options inside)
-                Text(
-                    text = "📲 TARGET APPLICATION REGISTER",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Gray,
-                    letterSpacing = 1.sp,
-                    modifier = Modifier.padding(bottom = 10.dp)
-                )
-
-                // Render dynamic list of registered applications
-                targetApps.forEach { appConfig ->
-                    AppAutomationItemRow(
-                        appConfig = appConfig,
-                        onToggle = { isChecked ->
-                            DrClickerController.updateAppConfig(context, appConfig.copy(isEnabled = isChecked))
-                        },
-                        onEdit = {
-                            editingApp = appConfig
-                            editAcceptBtnInput = appConfig.acceptButtonKeyword
-                            editKeywordsInput = appConfig.orderKeywords
-                            editScreenshotUriInput = appConfig.buttonScreenshotUri
-                            showEditAppDialog = true
-                        },
-                        onDelete = if (appConfig.id.startsWith("CUSTOM_")) {
-                            { DrClickerController.deleteCustomApp(context, appConfig.id) }
-                        } else null,
-                        textColor = textColor,
-                        neonGreen = neonGreen
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // CARD 1: SERVICE ORCHESTRATION DESK (Overlay toggle)
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 16.dp),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = cardBg),
-            border = BorderStroke(1.2.dp, neonGreen.copy(alpha = 0.25f))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(18.dp)
-            ) {
-                Text(
-                    text = "System Operator Desk",
-                    color = neonGreen,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.sp,
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-                Text(
-                    text = "Overlay helper panel ko manage karein delivery map screens ke liye.",
-                    color = Color.Gray,
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Button(
-                        onClick = {
-                            if (!hasOverlayPermission || !hasAccessibilityPermission) {
-                                Toast.makeText(context, "Kripya overlay aur accessibility permissions pehle enable karein.", Toast.LENGTH_LONG).show()
-                            } else {
-                                onTrigger10sAd() // Mandatory 10-second sponsor interstitial
-                                onTriggerOverlayService(true)
-                                Toast.makeText(context, "Overlay panel launched!", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "Show", modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("SHOW OVERLAY", fontSize = 11.sp, fontWeight = FontWeight.Black)
-                    }
-
-                    Button(
-                        onClick = {
-                            onTriggerOverlayService(false)
-                            Toast.makeText(context, "Overlay hidden.", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = textColor),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, Color.Gray.copy(alpha = 0.3f))
-                    ) {
-                        Text("HIDE OVERLAY", fontSize = 11.sp, fontWeight = FontWeight.Black)
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        // CARD 4: ADVANCED A/B SPLIT TESTING OPTIMIZER
-        var selectedProfileAB by remember { mutableStateOf("A") }
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 16.dp),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = cardBg),
-            border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(18.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                    // Price Setting Header
                     Text(
-                        text = "A/B Speed Latency Optimizer",
-                        color = MaterialTheme.colorScheme.secondary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
+                        text = "💸 PRICE RANGE SETTING (₹)",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Gray,
                         letterSpacing = 1.sp
                     )
-                    androidx.compose.material3.SuggestionChip(
-                        onClick = { },
-                        label = { Text("A/B ACTIVE TRIAL", fontSize = 8.sp, fontWeight = FontWeight.Bold) },
-                        colors = androidx.compose.material3.SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f),
-                            labelColor = MaterialTheme.colorScheme.secondary
-                        ),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f))
-                    )
-                }
-                
-                Text(
-                    text = "Perform interactive A/B tests on clicker profiles to compare speed and detection rates. Select active latency configuration:",
-                    color = Color.Gray,
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 14.dp)
-                )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Profile A Button
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (selectedProfileAB == "A") MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
-                            .border(
-                                width = if (selectedProfileAB == "A") 1.8.dp else 1.dp,
-                                color = if (selectedProfileAB == "A") MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .clickable { selectedProfileAB = "A" }
-                            .padding(12.dp)
-                    ) {
-                        Column {
-                            Text(
-                                text = "Profile A (Turbo)",
-                                color = if (selectedProfileAB == "A") MaterialTheme.colorScheme.primary else Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "⚡ Delay: 120ms\n🎯 Rate: 98.9% Success\n🛡️ Antiban: Standard",
-                                color = Color.Gray,
-                                fontSize = 10.sp,
-                                lineHeight = 13.sp
-                            )
-                        }
-                    }
-
-                    // Profile B Button
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (selectedProfileAB == "B") MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
-                            .border(
-                                width = if (selectedProfileAB == "B") 1.8.dp else 1.dp,
-                                color = if (selectedProfileAB == "B") MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .clickable { selectedProfileAB = "B" }
-                            .padding(12.dp)
-                    ) {
-                        Column {
-                            Text(
-                                text = "Profile B (Ghost Mode)",
-                                color = if (selectedProfileAB == "B") MaterialTheme.colorScheme.primary else Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "🛡️ Delay: Random\n🎯 Rate: 97.4% Success\n💎 Antiban: Secure",
-                                color = Color.Gray,
-                                fontSize = 10.sp,
-                                lineHeight = 13.sp
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Real-time A/B trial feedback banner
-                androidx.compose.material3.Surface(
-                    color = Color.Black.copy(alpha = 0.25f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(10.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = localMinPrice,
+                            onValueChange = { str ->
+                                val clean = str.filter { it.isDigit() }
+                                localMinPrice = clean
+                                DrClickerController.updateMinPrice(clean.toIntOrNull() ?: 0)
+                            },
+                            label = { Text("Min Price (₹)", fontSize = 10.sp) },
+                            textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 12.sp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = neonGreen,
+                                unfocusedBorderColor = Color.DarkGray,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.LightGray
+                            ),
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        OutlinedTextField(
+                            value = localMaxPrice,
+                            onValueChange = { str ->
+                                val clean = str.filter { it.isDigit() }
+                                localMaxPrice = clean
+                                DrClickerController.updateMaxPrice(clean.toIntOrNull() ?: Int.MAX_VALUE)
+                            },
+                            label = { Text("Max Price (₹)", fontSize = 10.sp) },
+                            textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = 12.sp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = neonGreen,
+                                unfocusedBorderColor = Color.DarkGray,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.LightGray
+                            ),
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Divider(color = Color.DarkGray.copy(alpha = 0.5f), thickness = 1.dp)
+
+                    // Application list and edit target apps
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "A/B Analytical Feedback:",
-                            fontSize = 10.sp,
-                            color = Color.LightGray
-                        )
-                        Text(
-                            text = if (selectedProfileAB == "A") "96.4% split winner in efficiency" else "99.8% stealth protection index",
+                            text = "📲 TARGET APPLICATIONS",
                             fontSize = 11.sp,
-                            color = neonGreen,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Gray,
+                            letterSpacing = 1.sp
                         )
+
+                        Button(
+                            onClick = { showAddAppDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = neonGreen.copy(alpha = 0.15f), contentColor = neonGreen),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text("+ NEW APP", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        targetApps.forEach { appConfig ->
+                            AppAutomationItemRow(
+                                appConfig = appConfig,
+                                onToggle = { isChecked ->
+                                    DrClickerController.updateAppConfig(context, appConfig.copy(isEnabled = isChecked))
+                                },
+                                onEdit = {
+                                    editingApp = appConfig
+                                    editAcceptBtnInput = appConfig.acceptButtonKeyword
+                                    editKeywordsInput = appConfig.orderKeywords
+                                    editScreenshotUriInput = appConfig.buttonScreenshotUri
+                                    showEditAppDialog = true
+                                },
+                                onDelete = if (appConfig.id.startsWith("CUSTOM_")) {
+                                    { DrClickerController.deleteCustomApp(context, appConfig.id) }
+                                } else null,
+                                textColor = textColor,
+                                neonGreen = neonGreen
+                            )
+                        }
                     }
                 }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showAppSettingsDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black)
+                ) {
+                    Text("OK / SAVE", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
             }
-        }
+        )
+    }
 
-        Spacer(modifier = Modifier.height(24.dp))
+    // DIALOG: EARN POINT HUBS (1 ad = 1 point calculation)
+    if (showEarnPointsDialog) {
+        AlertDialog(
+            onDismissRequest = { showEarnPointsDialog = false },
+            containerColor = Color(0xFFFFFFFF),
+            properties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false
+            ),
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .wrapContentHeight()
+                .clip(RoundedCornerShape(16.dp))
+                .border(2.dp, neonGreen, RoundedCornerShape(16.dp)),
+            title = {
+                Text(
+                    text = "📺 FREE RIDE BALANCE EXCHANGER",
+                    fontWeight = FontWeight.Black,
+                    fontSize = 15.sp,
+                    color = Color.Black,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = "1 AD WATCH = 1 RIDE BAL ACCEPTCREDIT",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 12.sp,
+                        color = neonGreen,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = "Apne background automated clicks ko run karne ke liye points earn karein. 30 seconds ki reward ad dekhne par hi aapko +1 credit milega.",
+                        fontSize = 11.sp,
+                        color = Color.DarkGray,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 15.sp
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .background(neonGreen.copy(alpha = 0.15f), RoundedCornerShape(10.dp))
+                            .border(1.dp, neonGreen, RoundedCornerShape(10.dp))
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = "POINTS BALANCE: $points RIDES",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color.Black
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            showEarnPointsDialog = false
+                            onTrigger30sAd()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        Text("👉 WATCH 30s SPONSOR VIDEO (+1 POINT)", fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    }
+
+                    Text(
+                        text = "*Note: System sponsor ads (10 sec) do not award points.",
+                        fontSize = 9.sp,
+                        color = Color.Gray,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showEarnPointsDialog = false }) {
+                    Text("CLOSE", color = Color.Gray, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        )
     }
 
     // Custom dialogs nested properly
@@ -4679,14 +4773,14 @@ fun DriverProfileScreen(
 @Composable
 fun SubscriptionsScreenTab(
     user: AppUser,
-    isActivated: Boolean,
-    remainingTimeText: String,
-    pendingPayment: PaymentRequest?,
-    onOpenPayment: () -> Unit,
+    onTrigger10sAd: () -> Unit,
+    onTrigger30sAd: () -> Unit,
     neonGreen: Color,
     cardBg: Color,
     context: Context
 ) {
+    val points by DrClickerController.adPoints.collectAsState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -4708,7 +4802,7 @@ fun SubscriptionsScreenTab(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "DRIVER AD REWARD HUB",
+                text = "DRIVER RIDE POINTS HUB",
                 fontSize = 16.sp,
                 color = neonGreen,
                 fontWeight = FontWeight.Black,
@@ -4716,7 +4810,7 @@ fun SubscriptionsScreenTab(
             )
         }
         Text(
-            text = "Dr.Clicker is now 100% free! Support us by watching sponsor ads and earn high-speed auto-tapping hours.",
+            text = "Dr.Clicker is 100% free! Watch sponsor ads and earn high-speed ride points active in your driver ledger.",
             fontSize = 11.sp,
             color = Color.Gray,
             textAlign = TextAlign.Center,
@@ -4729,12 +4823,12 @@ fun SubscriptionsScreenTab(
                 .fillMaxWidth()
                 .padding(bottom = 16.dp),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = if (isActivated) Color(0xFF0F172A) else Color(0xFF1E1E24)),
-            border = BorderStroke(1.dp, if (isActivated) neonGreen else Color.DarkGray)
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+            border = BorderStroke(1.dp, neonGreen)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "YOUR ACTIVE CORE STATUS:",
+                    text = "YOUR ACTIVE LEDGER BALANCE:",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.Gray
@@ -4746,48 +4840,38 @@ fun SubscriptionsScreenTab(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (isActivated) "Active PRO License" else "Inactive / Expired",
+                        text = "$points Ride Points Available",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Black,
-                        color = if (isActivated) neonGreen else Color(0xFFFE3B62)
+                        color = neonGreen
                     )
                     
                     Box(
                         modifier = Modifier
-                            .background(if (isActivated) neonGreen.copy(alpha = 0.1f) else Color(0x22FE3B62), RoundedCornerShape(20.dp))
+                            .background(neonGreen.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = if (isActivated) "ACTIVE" else "DEACTIVATED",
+                            text = "1 AD = 1 RIDE",
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Black,
-                            color = if (isActivated) neonGreen else Color(0xFFFE3B62)
+                            color = neonGreen
                         )
                     }
                 }
                 
-                if (isActivated) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Time Remaining: $remainingTimeText",
-                        fontSize = 12.sp,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
-                    )
-                } else {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Watch the quick or long ad units below to instantly activate and grant high-speed automated gestures.",
-                        fontSize = 10.sp,
-                        color = Color.LightGray
-                    )
-                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Remaining points are spent automatically to accept high-speed ride-sharing match jobs in the background.",
+                    fontSize = 10.sp,
+                    color = Color.LightGray
+                )
             }
         }
         
         // Watch Actions Selection Column
         Text(
-            text = "CHOOSE AD MODULE TO CLAIM HOURS",
+            text = "CHOOSE AD MODULE TO CLAIM RIDES",
             fontSize = 11.sp,
             fontWeight = FontWeight.Black,
             color = Color.LightGray,
@@ -4797,12 +4881,12 @@ fun SubscriptionsScreenTab(
         )
         
         listOf(
-            Triple("📺 QUICK AD SPONSOR", "Earn 4 Hours Auto-Clicking (10s watch time)", 4),
-            Triple("🎬 PRESTIGE VIDEO AD", "Earn 12 Hours Auto-Clicking (20s watch time)", 12),
-            Triple("🏆 MEGA REWARD AD BUNDLE", "Earn 24 Hours Auto-Clicking (30s watch time)", 24)
-        ).forEach { (title, desc, hours) ->
+            Triple("📺 QUICK AD SPONSOR", "Earn +1 Ride Point (10s watch time)", onTrigger10sAd),
+            Triple("🎬 PRESTIGE VIDEO AD", "Earn +1 Ride Point (20s watch time)", onTrigger30sAd),
+            Triple("🏆 MEGA REWARD AD BUNDLE", "Earn +1 Ride Point (30s watch time)", onTrigger30sAd)
+        ).forEach { (title, desc, action) ->
             Card(
-                onClick = onOpenPayment,
+                onClick = action,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 12.dp),
@@ -4837,7 +4921,7 @@ fun SubscriptionsScreenTab(
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = "+$hours HR",
+                            text = "+1 RIDE",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Black,
                             color = Color.Black
@@ -4865,7 +4949,7 @@ fun SubscriptionsScreenTab(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "This application handles complex, high-performance overlay rendering and natural humanlike gestures. Watching relevant ads keeps the local developer team running without requiring subscription payments. Your active hours add up cumulatively! Watch 2 videos in a row to get up to 48 hours of uninterrupted performance.",
+                    text = "This application handles complex, high-performance overlay rendering and natural humanlike gestures. Watching relevant ads keeps the local developer team running without requiring subscription payments or paid models. Every ad watched claims 1 point which grants 1 automated background ride job matching.",
                     fontSize = 9.sp,
                     color = Color.Gray,
                     lineHeight = 13.sp
@@ -7399,54 +7483,75 @@ fun AppOpenSimulatedAdDialog(
 }
 
 @Composable
+fun AdMobBannerAd(modifier: Modifier = Modifier) {
+    // AdMob Banner Ads Removed as requested.
+    Box(modifier = modifier)
+}
+
+@Composable
 fun SimulatedBannerAd() {
     val neonGreen = Color(0xFF00FF87)
-    Card(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0A0F1D)),
-        border = BorderStroke(1.dp, Color(0xFF1E293B))
+            .padding(vertical = 12.dp)
     ) {
-        Row(
+        // Real AdMob Banner Ad
+        Box(
             modifier = Modifier
-                .padding(10.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .padding(bottom = 8.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Box(
+            AdMobBannerAd()
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0A0F1D)),
+            border = BorderStroke(1.dp, Color(0xFF1E293B))
+        ) {
+            Row(
                 modifier = Modifier
-                    .background(neonGreen.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .padding(10.dp)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "SPONSOR",
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = neonGreen
+                Box(
+                    modifier = Modifier
+                        .background(neonGreen.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "SPONSOR",
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = neonGreen
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Rapido Captain Prime Pro Mode",
+                        fontSize = 11.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Boost daily auto-assign rate up to 300% legally.",
+                        fontSize = 9.sp,
+                        color = Color.Gray
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Default.ArrowForward,
+                    contentDescription = "Interact Ad",
+                    tint = neonGreen,
+                    modifier = Modifier.size(14.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Rapido Captain Prime Pro Mode",
-                    fontSize = 11.sp,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Boost daily auto-assign rate up to 300% legally.",
-                    fontSize = 9.sp,
-                    color = Color.Gray
-                )
-            }
-            Icon(
-                imageVector = Icons.Default.ArrowForward,
-                contentDescription = "Interact Ad",
-                tint = neonGreen,
-                modifier = Modifier.size(14.dp)
-            )
         }
     }
 }
@@ -7455,9 +7560,23 @@ fun SimulatedBannerAd() {
 fun TenSecSponsorInterstitialAdDialog(
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     var progressSeconds by remember { mutableStateOf(10) }
     val neonGreen = Color(0xFF00FF87)
     val neonYellow = Color(0xFFFFB300)
+    val adUrl = DrClickerController.adNetworkUrl.collectAsState().value
+
+    // Auto-redirect to smart link in browser immediately
+    LaunchedEffect(Unit) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(adUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
     LaunchedEffect(Unit) {
         while (progressSeconds > 0) {
@@ -7466,90 +7585,150 @@ fun TenSecSponsorInterstitialAdDialog(
         }
     }
 
-    AlertDialog(
+    androidx.compose.ui.window.Dialog(
         onDismissRequest = { /* Block dismiss */ },
         properties = androidx.compose.ui.window.DialogProperties(
             dismissOnBackPress = false,
             dismissOnClickOutside = false,
             usePlatformDefaultWidth = false
-        ),
-        modifier = Modifier
-            .fillMaxWidth(0.92f)
-            .wrapContentHeight()
-            .clip(RoundedCornerShape(20.dp))
-            .border(2.dp, neonYellow, RoundedCornerShape(20.dp)),
-        containerColor = Color(0xFF080D1A),
-        title = null,
-        text = {
+        )
+    ) {
+        androidx.compose.material3.Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color.White
+        ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp),
+                    .fillMaxSize()
+                    .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Header Bar
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .background(Color(0xFFFE3B62).copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "10s SPONSOR ADS ACTIVE",
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFE3B62)
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFFFE3B62).copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "SYSTEM SPONSOR AD ACTIVE",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color(0xFFFE3B62),
+                                letterSpacing = 1.sp
+                            )
+                        }
                     }
 
                     if (progressSeconds > 0) {
                         Text(
-                            text = "Unlocking in ${progressSeconds}s",
-                            color = Color.LightGray,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
+                            text = "UNLOCKING IN ${progressSeconds}s",
+                            color = Color.Black,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black,
                             fontFamily = FontFamily.Monospace
                         )
                     } else {
-                        IconButton(
+                        Button(
                             onClick = onDismiss,
-                            modifier = Modifier.size(24.dp)
+                            colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            modifier = Modifier.height(34.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close Ad",
-                                tint = neonGreen,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Text("CLOSE AD & UNLOCK", fontSize = 11.sp, fontWeight = FontWeight.Black)
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                // Progress Indicator
+                androidx.compose.material3.LinearProgressIndicator(
+                    progress = progressSeconds / 10f,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = neonGreen,
+                    trackColor = Color(0xFFE2E8F0)
+                )
 
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Description card (tells user they are being redirected to sponsor)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F5F9)),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "⚡ AD REDIRECTION IS RUNNING ENHANCED",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.Black
+                        )
+                        Text(
+                            text = "We have opened a premium Sponsor Smart Link in your external web browser app. Please complete steps there, or interact with the preview below. No point credits are awarded for 10s system ads; earn points via the point hub.",
+                            fontSize = 11.sp,
+                            color = Color.DarkGray,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+                            lineHeight = 15.sp
+                        )
+
+                        Button(
+                            onClick = {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(adUrl)).apply {
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Black, contentColor = Color.White),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(40.dp)
+                        ) {
+                            Icon(Icons.Default.ArrowForward, contentDescription = "Open Browser", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("👉 RE-OPEN REDIRECT AD IN BROWSER", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Full Screen WebView (No card box - complete fill)
                 Text(
-                    text = "Sponsor Advertisement Active",
-                    fontSize = 14.sp,
+                    text = "LIVE INTERACTIVE CPM AD PREVIEW",
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Text(
-                    text = "High-speed auto-clicker features are funded by active sponsor link views.",
-                    fontSize = 9.sp,
                     color = Color.Gray,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 12.dp)
+                    letterSpacing = 1.sp,
+                    modifier = Modifier.align(Alignment.Start).padding(bottom = 6.dp)
                 )
 
-                // Real Monetag Smartlink embedded
-                val adUrl = DrClickerController.adNetworkUrl.collectAsState().value
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(260.dp)
+                        .weight(1f)
                         .clip(RoundedCornerShape(12.dp))
                         .background(Color.Black)
                         .border(1.dp, Color.DarkGray, RoundedCornerShape(12.dp)),
@@ -7572,21 +7751,21 @@ fun TenSecSponsorInterstitialAdDialog(
                 }
 
                 if (progressSeconds == 0) {
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = onDismiss,
                         colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().height(42.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
                     ) {
-                        Text("CLOSE SPONSOR AD & CONTINUE", fontSize = 11.sp, fontWeight = FontWeight.Black)
+                        Text("CLOSE SPONSOR AD & CONTINUE", fontSize = 13.sp, fontWeight = FontWeight.Black)
                     }
                 }
             }
-        },
-        confirmButton = {},
-        dismissButton = {}
-    )
+        }
+    }
 }
 
 @Composable
@@ -7594,10 +7773,24 @@ fun ThirtySecRewardedAdDialog(
     onComplete: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     var progressSeconds by remember { mutableStateOf(30) }
     var pointsClaimed by remember { mutableStateOf(false) }
     val neonGreen = Color(0xFF00FF87)
     val neonYellow = Color(0xFFFFB300)
+    val adUrl = DrClickerController.adNetworkUrl.collectAsState().value
+
+    // Auto-redirect to smart link in browser immediately
+    LaunchedEffect(Unit) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(adUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
     LaunchedEffect(Unit) {
         while (progressSeconds > 0) {
@@ -7606,55 +7799,58 @@ fun ThirtySecRewardedAdDialog(
         }
     }
 
-    AlertDialog(
+    androidx.compose.ui.window.Dialog(
         onDismissRequest = { /* Block dismiss */ },
         properties = androidx.compose.ui.window.DialogProperties(
             dismissOnBackPress = false,
             dismissOnClickOutside = false,
             usePlatformDefaultWidth = false
-        ),
-        modifier = Modifier
-            .fillMaxWidth(0.92f)
-            .wrapContentHeight()
-            .clip(RoundedCornerShape(20.dp))
-            .border(2.dp, neonGreen, RoundedCornerShape(20.dp)),
-        containerColor = Color(0xFF090E1B),
-        title = null,
-        text = {
+        )
+    ) {
+        androidx.compose.material3.Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color.White
+        ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp),
+                    .fillMaxSize()
+                    .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Header Bar
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .background(neonGreen.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "📺 REWARDED ADS ACTIVE",
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = neonGreen
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .background(neonGreen.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "30s REWARDED SPONSOR AD ACTIVE",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                color = neonGreen,
+                                letterSpacing = 1.sp
+                            )
+                        }
                     }
 
                     if (progressSeconds > 0) {
                         Text(
-                            text = "Claim in ${progressSeconds}s",
-                            color = Color.LightGray,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
+                            text = "CLAIM POINT IN ${progressSeconds}s",
+                            color = Color.Black,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black,
                             fontFamily = FontFamily.Monospace
                         )
                     } else {
-                        IconButton(
+                        Button(
                             onClick = {
                                 if (!pointsClaimed) {
                                     pointsClaimed = true
@@ -7662,40 +7858,97 @@ fun ThirtySecRewardedAdDialog(
                                 }
                                 onDismiss()
                             },
-                            modifier = Modifier.size(24.dp)
+                            colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            modifier = Modifier.height(34.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close Ad",
-                                tint = neonGreen,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Text("CLAIM POINT & CLOSE AD", fontSize = 11.sp, fontWeight = FontWeight.Black)
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                // Progress Indicator
+                androidx.compose.material3.LinearProgressIndicator(
+                    progress = progressSeconds / 30f,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = neonGreen,
+                    trackColor = Color(0xFFE2E8F0)
+                )
 
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Description card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F5F9)),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "🎬 PREMIUM WATCH VIDEO REDIRECT ACTIVE",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.Black
+                        )
+                        Text(
+                            text = "The premium Sponsor Smart Link is open in your browser app. Watch/interact with the sponsor page to claim your free Ride Accept Point.",
+                            fontSize = 11.sp,
+                            color = Color.DarkGray,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+                            lineHeight = 15.sp
+                        )
+
+                        Button(
+                            onClick = {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(adUrl)).apply {
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Black, contentColor = Color.White),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(40.dp)
+                        ) {
+                            Icon(Icons.Default.ArrowForward, contentDescription = "Open Browser", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("👉 RE-OPEN REDIRECT AD IN BROWSER", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Full Screen WebView (No card box - complete fill)
                 Text(
-                    text = "30-Second Rewarded Sponsor Video",
-                    fontSize = 14.sp,
+                    text = "LIVE INTERACTIVE CPM AD PREVIEW",
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Text(
-                    text = "Watch till end to automatically claim +5 FREE Ride Accept Points!",
-                    fontSize = 9.sp,
                     color = Color.Gray,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 12.dp)
+                    letterSpacing = 1.sp,
+                    modifier = Modifier.align(Alignment.Start).padding(bottom = 6.dp)
                 )
 
-                // Real Monetag Smartlink embedded
-                val adUrl = DrClickerController.adNetworkUrl.collectAsState().value
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(260.dp)
+                        .weight(1f)
                         .clip(RoundedCornerShape(12.dp))
                         .background(Color.Black)
                         .border(1.dp, Color.DarkGray, RoundedCornerShape(12.dp)),
@@ -7718,7 +7971,7 @@ fun ThirtySecRewardedAdDialog(
                 }
 
                 if (progressSeconds == 0) {
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = {
                             if (!pointsClaimed) {
@@ -7728,17 +7981,17 @@ fun ThirtySecRewardedAdDialog(
                             onDismiss()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().height(42.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
                     ) {
-                        Text("CLAIM +5 RIDE POINTS & EXIT", fontSize = 11.sp, fontWeight = FontWeight.Black)
+                        Text("CLAIM +1 FREE POINT & CLOSE AD", fontSize = 13.sp, fontWeight = FontWeight.Black)
                     }
                 }
             }
-        },
-        confirmButton = {},
-        dismissButton = {}
-    )
+        }
+    }
 }
 
 @Composable

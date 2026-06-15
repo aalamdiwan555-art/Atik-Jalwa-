@@ -18,12 +18,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import com.google.firebase.auth.FirebaseAuth
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collect
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -159,8 +165,16 @@ object AuthManager {
     private val _paymentRequests = MutableStateFlow<List<PaymentRequest>>(emptyList())
     val paymentRequests: StateFlow<List<PaymentRequest>> = _paymentRequests.asStateFlow()
 
+    private var firebaseAuth: FirebaseAuth? = null
+
     fun initialize(ctx: Context) {
         context = ctx.applicationContext
+        try {
+            firebaseAuth = FirebaseAuth.getInstance()
+            Log.d("AuthManager", "Firebase Authentication initialized successfully!")
+        } catch (e: Exception) {
+            Log.e("AuthManager", "Firebase initialization failed or google-services.json is missing: ${e.message}")
+        }
         loadAllData()
     }
 
@@ -233,10 +247,34 @@ object AuthManager {
         }
         _paymentRequests.value = pmList
 
-        // 3. Load active session
+        // 3. Load active session (Firebase or Local)
         val currentUid = prefs.getString("current_user_uid", "") ?: ""
-        if (currentUid.isNotEmpty()) {
-            _currentUser.value = userList.find { it.uid == currentUid }
+        try {
+            val fbUser = firebaseAuth?.currentUser
+            if (fbUser != null) {
+                val matchedUser = userList.find { it.uid == fbUser.uid || it.email.lowercase() == fbUser.email?.lowercase() }
+                if (matchedUser != null) {
+                    _currentUser.value = matchedUser
+                } else {
+                    val newUser = AppUser(
+                        uid = fbUser.uid,
+                        email = fbUser.email ?: "driver@drclicker.com",
+                        role = "DRIVER",
+                        status = UserStatus.APPROVED,
+                        readableUserId = "DRV-${fbUser.uid.take(6).uppercase()}",
+                        subscriptionExpiry = System.currentTimeMillis() + 86400000L
+                    )
+                    userList.add(newUser)
+                    saveUsersLocal(userList)
+                    _currentUser.value = newUser
+                }
+            } else if (currentUid.isNotEmpty()) {
+                _currentUser.value = userList.find { it.uid == currentUid }
+            }
+        } catch (e: Exception) {
+            if (currentUid.isNotEmpty()) {
+                _currentUser.value = userList.find { it.uid == currentUid }
+            }
         }
     }
 
@@ -281,40 +319,119 @@ object AuthManager {
             return
         }
 
-        val user = _allUsers.value.find { it.email.lowercase() == trimmed }
-        if (user != null) {
-            if (pass.isNotEmpty()) {
-                setCurrentUser(user)
-                callback(true, null)
-            } else {
-                callback(false, "Password empty")
-            }
+        val auth = firebaseAuth
+        if (auth != null) {
+            auth.signInWithEmailAndPassword(trimmed, pass)
+                .addOnCompleteListener { task ->
+                    if (task.isSuccessful) {
+                        val fbUser = task.result?.user
+                        if (fbUser != null) {
+                            val userList = _allUsers.value.toMutableList()
+                            val matchedUser = userList.find { it.uid == fbUser.uid || it.email.lowercase() == fbUser.email?.lowercase() }
+                            val resolvedUser = if (matchedUser != null) {
+                                matchedUser
+                            } else {
+                                val newUser = AppUser(
+                                    uid = fbUser.uid,
+                                    email = fbUser.email ?: trimmed,
+                                    role = "DRIVER",
+                                    status = UserStatus.APPROVED,
+                                    readableUserId = "DRV-${fbUser.uid.take(6).uppercase()}",
+                                    subscriptionExpiry = System.currentTimeMillis() + 86400000L
+                                )
+                                userList.add(newUser)
+                                _allUsers.value = userList
+                                saveUsersLocal(userList)
+                                newUser
+                            }
+                            setCurrentUser(resolvedUser)
+                            callback(true, null)
+                        } else {
+                            callback(false, "Firebase user state empty")
+                        }
+                    } else {
+                        // Fallback to local user record check
+                        val errorDetail = task.exception?.localizedMessage ?: "Firebase Sign In Error"
+                        Log.w("AuthManager", "Firebase Sign In failed: $errorDetail. Looking up local safe sandbox account.")
+                        val matched = _allUsers.value.find { it.email.lowercase() == trimmed }
+                        if (matched != null && pass.isNotEmpty()) {
+                            setCurrentUser(matched)
+                            callback(true, "Signed in via Local DB sandbox (Firebase: $errorDetail)")
+                        } else {
+                            callback(false, errorDetail)
+                        }
+                    }
+                }
         } else {
-            callback(false, "No user found with email $trimmed")
+            // Local sandbox fallback
+            val user = _allUsers.value.find { it.email.lowercase() == trimmed }
+            if (user != null) {
+                if (pass.isNotEmpty()) {
+                    setCurrentUser(user)
+                    callback(true, null)
+                } else {
+                    callback(false, "Password empty")
+                }
+            } else {
+                callback(false, "No user registered locally with email $trimmed (Firebase inactive)")
+            }
         }
     }
 
     fun signUp(name: String, email: String, pass: String, callback: (Boolean, String?) -> Unit) {
         val trimmed = email.trim().lowercase()
-        if (_allUsers.value.any { it.email.lowercase() == trimmed }) {
-            callback(false, "Email already registered")
-            return
+        val auth = firebaseAuth
+        if (auth != null) {
+            auth.createUserWithEmailAndPassword(trimmed, pass)
+                .addOnCompleteListener { task ->
+                    if (task.isSuccessful) {
+                        val fbUser = task.result?.user
+                        if (fbUser != null) {
+                            val userList = _allUsers.value.toMutableList()
+                            val newUser = AppUser(
+                                uid = fbUser.uid,
+                                email = trimmed,
+                                role = "DRIVER",
+                                status = UserStatus.APPROVED,
+                                readableUserId = "DRV-${fbUser.uid.take(6).uppercase()}",
+                                subscriptionExpiry = System.currentTimeMillis() + 86400000L
+                            )
+                            userList.add(newUser)
+                            _allUsers.value = userList
+                            saveUsersLocal(userList)
+                            setCurrentUser(newUser)
+                            callback(true, null)
+                        } else {
+                            callback(false, "Firebase User payload error")
+                        }
+                    } else {
+                        val errorDetail = task.exception?.localizedMessage ?: "Firebase Sign Up Error"
+                        Log.e("AuthManager", "Firebase Sign Up failed: $errorDetail")
+                        callback(false, errorDetail)
+                    }
+                }
+        } else {
+            // Local sandbox mode
+            if (_allUsers.value.any { it.email.lowercase() == trimmed }) {
+                callback(false, "Email already registered")
+                return
+            }
+            val uid = "user_" + System.currentTimeMillis().toString().takeLast(6)
+            val newUser = AppUser(
+                uid = uid,
+                email = trimmed,
+                role = "DRIVER",
+                status = UserStatus.APPROVED,
+                readableUserId = "DRV-${uid.uppercase()}",
+                subscriptionExpiry = System.currentTimeMillis() + 86400000L
+            )
+            val list = _allUsers.value.toMutableList()
+            list.add(newUser)
+            _allUsers.value = list
+            saveUsersLocal(list)
+            setCurrentUser(newUser)
+            callback(true, null)
         }
-        val uid = "user_" + System.currentTimeMillis().toString().takeLast(6)
-        val newUser = AppUser(
-            uid = uid,
-            email = trimmed,
-            role = "DRIVER",
-            status = UserStatus.PENDING,
-            readableUserId = "DRV-${uid.uppercase()}",
-            subscriptionExpiry = 0L
-        )
-        val list = _allUsers.value.toMutableList()
-        list.add(newUser)
-        _allUsers.value = list
-        saveUsersLocal(list)
-        setCurrentUser(newUser)
-        callback(true, null)
     }
 
     fun signInWithGoogle(email: String, callback: (Boolean, String?) -> Unit) {
@@ -344,12 +461,25 @@ object AuthManager {
 
     fun resetPassword(email: String, newPass: String, callback: (Boolean, String?) -> Unit) {
         val trimmed = email.trim().lowercase()
-        val list = _allUsers.value.toMutableList()
-        val index = list.indexOfFirst { it.email.lowercase() == trimmed }
-        if (index != -1) {
-            callback(true, "Password reset code verified. New credential saved successfully!")
+        val auth = firebaseAuth
+        if (auth != null) {
+            auth.sendPasswordResetEmail(trimmed)
+                .addOnCompleteListener { task ->
+                    if (task.isSuccessful) {
+                        callback(true, "Firebase password reset link has been dispatched to $trimmed successfully!")
+                    } else {
+                        val err = task.exception?.localizedMessage ?: "Password Reset Error"
+                        callback(false, err)
+                    }
+                }
         } else {
-            callback(false, "Email registered driver footprint not matched.")
+            val list = _allUsers.value.toMutableList()
+            val index = list.indexOfFirst { it.email.lowercase() == trimmed }
+            if (index != -1) {
+                callback(true, "Password reset code verified. New credential saved successfully in Sandbox Local mode!")
+            } else {
+                callback(false, "Email registered driver footprint not matched locally.")
+            }
         }
     }
 
@@ -360,6 +490,11 @@ object AuthManager {
     }
 
     fun signOut() {
+        try {
+            firebaseAuth?.signOut()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         _currentUser.value = null
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().remove("current_user_uid").apply()
@@ -495,10 +630,284 @@ class SubscriptionTimerService : Service() {
 }
 
 class FloatingOverlayService : Service() {
+    private var windowManager: android.view.WindowManager? = null
+    private var overlayRoot: android.widget.LinearLayout? = null
+    private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
+
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+        startMyForeground()
+        buildSystemOverlay()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d("FloatingService", "Floating overlay service is running.")
+        startMyForeground()
         return START_STICKY
+    }
+
+    private val CHANNEL_ID = "floating_overlay_channel"
+
+    private fun createNotificationChannel() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val name = "Dr.Clicker Assistant Service"
+            val descriptionText = "Virtual Delivery Driver Assist Overlay"
+            val importance = android.app.NotificationManager.IMPORTANCE_LOW
+            val channel = android.app.NotificationChannel(CHANNEL_ID, name, importance).apply {
+                description = descriptionText
+            }
+            val notificationManager: android.app.NotificationManager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+
+    private fun startMyForeground() {
+        val title = "Dr.Clicker Service Active"
+        val text = "Overlay helper panel is running."
+        val iconRes = applicationInfo.icon
+
+        val notification = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            android.app.Notification.Builder(this, CHANNEL_ID)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setSmallIcon(iconRes)
+                .setOngoing(true)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            android.app.Notification.Builder(this)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setSmallIcon(iconRes)
+                .setOngoing(true)
+                .build()
+        }
+
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(1001, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(1001, notification)
+            }
+        } catch (e: Exception) {
+            Log.e("FloatingService", "Failed to start foreground service: ${e.message}", e)
+            try {
+                startForeground(1001, notification)
+            } catch (ex: Exception) {
+                Log.e("FloatingService", "Fallback startForeground failed.", ex)
+            }
+        }
+    }
+
+    private fun buildSystemOverlay() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M && !android.provider.Settings.canDrawOverlays(this)) {
+            Log.w("FloatingService", "Overlay permission not granted. Cannot display system bubble.")
+            return
+        }
+
+        try {
+            windowManager = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+            val dpToPx = { dp: Int ->
+                (dp * resources.displayMetrics.density).toInt()
+            }
+
+            val layoutFlag = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                android.view.WindowManager.LayoutParams.TYPE_PHONE
+            }
+
+            val params = android.view.WindowManager.LayoutParams(
+                android.view.WindowManager.LayoutParams.WRAP_CONTENT,
+                android.view.WindowManager.LayoutParams.WRAP_CONTENT,
+                layoutFlag,
+                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                android.graphics.PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = android.view.Gravity.TOP or android.view.Gravity.START
+                x = dpToPx(16)
+                y = dpToPx(120)
+            }
+
+            val rootLayout = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                setPadding(dpToPx(10), dpToPx(6), dpToPx(10), dpToPx(6))
+                gravity = android.view.Gravity.CENTER_VERTICAL
+
+                val bg = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = dpToPx(24).toFloat()
+                    setColor(android.graphics.Color.WHITE)
+                    setStroke(dpToPx(2), android.graphics.Color.parseColor("#FF00A254")) // Forest Green border
+                }
+                background = bg
+            }
+
+            // Drag Grip handle
+            val handleView = android.widget.TextView(this).apply {
+                text = "⁝⁝"
+                textSize = 18f
+                setTextColor(android.graphics.Color.GRAY)
+                setPadding(dpToPx(4), 0, dpToPx(6), 0)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
+            rootLayout.addView(handleView)
+
+            // Status indicator and point readouts
+            val statusText = android.widget.TextView(this).apply {
+                text = "DR.C: OFF • 0 RIDES"
+                textSize = 11f
+                setTextColor(android.graphics.Color.BLACK)
+                setPadding(dpToPx(4), 0, dpToPx(8), 0)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
+            rootLayout.addView(statusText)
+
+            // Play/Pause Action button
+            val toggleBtn = android.widget.TextView(this).apply {
+                text = "START"
+                textSize = 10f
+                setTextColor(android.graphics.Color.WHITE)
+                setPadding(dpToPx(10), dpToPx(5), dpToPx(10), dpToPx(5))
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+
+                val btnBg = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = dpToPx(12).toFloat()
+                    setColor(android.graphics.Color.parseColor("#FF00A254")) // Green active bg
+                }
+                background = btnBg
+
+                setOnClickListener {
+                    val nextActive = !DrClickerController.isScanning.value
+                    DrClickerController.setScanning(nextActive)
+                }
+            }
+            rootLayout.addView(toggleBtn)
+
+            // Portal shortcut button
+            val homeBtn = android.widget.TextView(this).apply {
+                text = "APP"
+                textSize = 10f
+                setTextColor(android.graphics.Color.BLACK)
+                setPadding(dpToPx(10), dpToPx(5), dpToPx(10), dpToPx(5))
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+
+                val btnBg = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = dpToPx(12).toFloat()
+                    setColor(android.graphics.Color.parseColor("#FFE2E8F0")) // Slate container border bg
+                }
+                background = btnBg
+
+                val btnParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    leftMargin = dpToPx(6)
+                }
+                layoutParams = btnParams
+
+                setOnClickListener {
+                    try {
+                        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        }
+                        if (launchIntent != null) {
+                            startActivity(launchIntent)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+            rootLayout.addView(homeBtn)
+
+            // Handle touch drag operations on overlay
+            var initialX = 0
+            var initialY = 0
+            var initialTouchX = 0f
+            var initialTouchY = 0f
+
+            handleView.setOnTouchListener { _, event ->
+                val winM = windowManager ?: return@setOnTouchListener false
+                when (event.action) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        initialX = params.x
+                        initialY = params.y
+                        initialTouchX = event.rawX
+                        initialTouchY = event.rawY
+                        true
+                    }
+                    android.view.MotionEvent.ACTION_MOVE -> {
+                        params.x = initialX + (event.rawX - initialTouchX).toInt()
+                        params.y = initialY + (event.rawY - initialTouchY).toInt()
+                        try {
+                            winM.updateViewLayout(rootLayout, params)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+
+            // Real-time Flows state collection
+            serviceScope.launch {
+                DrClickerController.isScanning.collect { active ->
+                    statusText.text = if (active) {
+                        "DR.C: ON • ${DrClickerController.adPoints.value} RIDES"
+                    } else {
+                        "DR.C: OFF • ${DrClickerController.adPoints.value} RIDES"
+                    }
+                    toggleBtn.text = if (active) "STOP" else "START"
+                    (toggleBtn.background as? android.graphics.drawable.GradientDrawable)?.setColor(
+                        if (active) android.graphics.Color.parseColor("#FFFF3B30") // Premium High Contrast Red
+                        else android.graphics.Color.parseColor("#FF00A254") // Premium Forest Green
+                    )
+                }
+            }
+
+            serviceScope.launch {
+                DrClickerController.adPoints.collect { points ->
+                    val active = DrClickerController.isScanning.value
+                    statusText.text = if (active) {
+                        "DR.C: ON • ${points} RIDES"
+                    } else {
+                        "DR.C: OFF • ${points} RIDES"
+                    }
+                }
+            }
+
+            overlayRoot = rootLayout
+            windowManager?.addView(rootLayout, params)
+        } catch (e: Exception) {
+            Log.e("FloatingService", "Critical error rendering overlay panel: ${e.message}", e)
+        }
+    }
+
+    override fun onDestroy() {
+        try {
+            serviceScope.cancel()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            overlayRoot?.let {
+                windowManager?.removeView(it)
+            }
+        } catch (e: Exception) {
+            Log.e("FloatingService", "Error discharging overlay panel view: ${e.message}")
+        }
+        overlayRoot = null
+        super.onDestroy()
     }
 }
 

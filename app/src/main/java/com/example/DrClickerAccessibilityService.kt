@@ -28,16 +28,89 @@ class DrClickerAccessibilityService : AccessibilityService() {
             private set
     }
 
+    private var visualTargetsJob: kotlinx.coroutines.Job? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
         DrClickerController.logEvent("Accessibility Service Connected successfully!", false)
+        startVisualTargetsWatcher()
     }
 
     override fun onDestroy() {
+        stopVisualTargetsLoop()
         instance = null
         super.onDestroy()
         DrClickerController.logEvent("Accessibility Service Halted / Disconnected", false)
+    }
+
+    private fun startVisualTargetsWatcher() {
+        serviceScope.launch {
+            DrClickerController.isScanning.collect { active ->
+                if (active) {
+                    startVisualTargetsLoop()
+                } else {
+                    stopVisualTargetsLoop()
+                }
+            }
+        }
+    }
+
+    private fun startVisualTargetsLoop() {
+        stopVisualTargetsLoop()
+        visualTargetsJob = serviceScope.launch {
+            while (DrClickerController.isScanning.value) {
+                // Read targets dynamically
+                val targets = DrClickerController.visualTargets.value
+                if (targets.isEmpty()) {
+                    kotlinx.coroutines.delay(1000)
+                    continue
+                }
+
+                for (target in targets) {
+                    if (!DrClickerController.isScanning.value) break
+
+                    // Ensure we have active ride accept points
+                    if (DrClickerController.adPoints.value <= 0) {
+                        DrClickerController.setScanning(false)
+                        DrClickerController.logEvent("Automatic clicks halted: Points balance became 0. Watch 30s ad to top up!", false)
+                        break
+                    }
+
+                    val resources = resources
+                    val displayMetrics = resources.displayMetrics
+                    val screenWidth = displayMetrics.widthPixels
+                    val screenHeight = displayMetrics.heightPixels
+
+                    val startX = target.xPercent * screenWidth
+                    val startY = target.yPercent * screenHeight
+
+                    if (target.isSwipe) {
+                        val endX = target.endXPercent * screenWidth
+                        val endY = target.endYPercent * screenHeight
+                        DrClickerController.logEvent("👉 Dragging overlay swipe #${target.id} at (${startX.toInt()}, ${startY.toInt()}) -> (${endX.toInt()}, ${endY.toInt()})", true)
+                        
+                        if (DrClickerController.deductPoint()) {
+                            dispatchManualSwipe(startX, startY, endX, endY, 250L)
+                        }
+                    } else {
+                        DrClickerController.logEvent("👉 Dragging overlay tap #${target.id} at (${startX.toInt()}, ${startY.toInt()})", true)
+                        
+                        if (DrClickerController.deductPoint()) {
+                            dispatchManualTap(startX, startY, 75L)
+                        }
+                    }
+
+                    // Delay before executing the next target point
+                    kotlinx.coroutines.delay(target.delayMs.toLong().coerceAtLeast(120L))
+                }
+            }
+        }
+    }
+
+    private fun stopVisualTargetsLoop() {
+        visualTargetsJob?.cancel()
+        visualTargetsJob = null
     }
 
     fun dispatchManualTap(x: Float, y: Float, duration: Long = 85L, onComplete: (Boolean) -> Unit = {}) {
