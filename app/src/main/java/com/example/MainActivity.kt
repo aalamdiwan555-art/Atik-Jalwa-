@@ -2177,7 +2177,10 @@ fun MainDashboardScreen(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
                             .background(if (isSelected) neonGreen.copy(alpha = 0.12f) else Color.Transparent)
-                            .clickable { selectedTab = tabId }
+                            .clickable {
+                                selectedTab = tabId
+                                active10sAdVisible = true
+                            }
                             .padding(vertical = 6.dp, horizontal = 10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
@@ -2414,57 +2417,64 @@ fun MainDashboardScreen(
                 ""
             }
 
-            when (selectedTab) {
-                "dashboard" -> {
-                    DashboardContentTab(
-                        user = user,
-                        hasOverlayPermission = hasOverlayPermission,
-                        hasAccessibilityPermission = hasAccessibilityPermission,
-                        isOverlayServiceRunning = isOverlayServiceRunning,
-                        onOpenSettings = onOpenSettings,
-                        onTriggerOverlayService = { run ->
-                            isOverlayServiceRunning = run
-                            onTriggerOverlayService(run)
-                        },
-                        neonGreen = neonGreen,
-                        neonRed = neonRed,
-                        cardBg = cardBg,
-                        context = context,
-                        permissionPopupDismissed = permissionPopupDismissed,
-                        onTrigger10sAd = { active10sAdVisible = true },
-                        onTrigger30sAd = { active30sAdVisible = true }
-                    )
-                }
-                "subscriptions" -> {
-                    SubscriptionsScreenTab(
-                        user = user,
-                        onTrigger10sAd = { active10sAdVisible = true },
-                        onTrigger30sAd = { active30sAdVisible = true },
-                        neonGreen = neonGreen,
-                        cardBg = cardBg,
-                        context = context
-                    )
-                }
-                "profile" -> {
-                    DriverProfileScreen(
-                        user = user,
-                        isActivated = isActivated,
-                        remainingTimeText = remainingTimeText,
-                        onSignOut = onSignOut,
-                        onRequestAccessibility = {
-                            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                            context.startActivity(intent)
-                        },
-                        onRequestOverlay = {
-                            val intent = Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:${context.packageName}")
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Persistent Sticky Top Smartlink Banner Ad Everywhere
+                SimulatedBannerAd()
+
+                Box(modifier = Modifier.weight(1f)) {
+                    when (selectedTab) {
+                        "dashboard" -> {
+                            DashboardContentTab(
+                                user = user,
+                                hasOverlayPermission = hasOverlayPermission,
+                                hasAccessibilityPermission = hasAccessibilityPermission,
+                                isOverlayServiceRunning = isOverlayServiceRunning,
+                                onOpenSettings = onOpenSettings,
+                                onTriggerOverlayService = { run ->
+                                    isOverlayServiceRunning = run
+                                    onTriggerOverlayService(run)
+                                },
+                                neonGreen = neonGreen,
+                                neonRed = neonRed,
+                                cardBg = cardBg,
+                                context = context,
+                                permissionPopupDismissed = permissionPopupDismissed,
+                                onTrigger10sAd = { active10sAdVisible = true },
+                                onTrigger30sAd = { active30sAdVisible = true }
                             )
-                            context.startActivity(intent)
-                        },
-                        neonGreen = neonGreen,
-                        cardBg = cardBg
-                    )
+                        }
+                        "subscriptions" -> {
+                            SubscriptionsScreenTab(
+                                user = user,
+                                onTrigger10sAd = { active10sAdVisible = true },
+                                onTrigger30sAd = { active30sAdVisible = true },
+                                neonGreen = neonGreen,
+                                cardBg = cardBg,
+                                context = context
+                            )
+                        }
+                        "profile" -> {
+                            DriverProfileScreen(
+                                user = user,
+                                isActivated = isActivated,
+                                remainingTimeText = remainingTimeText,
+                                onSignOut = onSignOut,
+                                onRequestAccessibility = {
+                                    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                    context.startActivity(intent)
+                                },
+                                onRequestOverlay = {
+                                    val intent = Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        Uri.parse("package:${context.packageName}")
+                                    )
+                                    context.startActivity(intent)
+                                },
+                                neonGreen = neonGreen,
+                                cardBg = cardBg
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -2831,7 +2841,7 @@ fun DashboardContentTab(
                 .wrapContentHeight(),
             contentAlignment = Alignment.Center
         ) {
-            AdMobBannerAd()
+            SimulatedBannerAd()
         }
     }
 
@@ -7491,67 +7501,35 @@ fun AdMobBannerAd(modifier: Modifier = Modifier) {
 @Composable
 fun SimulatedBannerAd() {
     val neonGreen = Color(0xFF00FF87)
+    val adUrl = DrClickerController.adNetworkUrl.collectAsState().value
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp)
+            .padding(vertical = 8.dp)
     ) {
-        // Real AdMob Banner Ad
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .wrapContentHeight()
-                .padding(bottom = 8.dp),
+                .height(115.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black)
+                .border(1.dp, neonGreen, RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center
         ) {
-            AdMobBannerAd()
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(10.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF0A0F1D)),
-            border = BorderStroke(1.dp, Color(0xFF1E293B))
-        ) {
-            Row(
-                modifier = Modifier
-                    .padding(10.dp)
-                    .fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .background(neonGreen.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = "SPONSOR",
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = neonGreen
-                    )
-                }
-                Spacer(modifier = Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Rapido Captain Prime Pro Mode",
-                        fontSize = 11.sp,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Boost daily auto-assign rate up to 300% legally.",
-                        fontSize = 9.sp,
-                        color = Color.Gray
-                    )
-                }
-                Icon(
-                    imageVector = Icons.Default.ArrowForward,
-                    contentDescription = "Interact Ad",
-                    tint = neonGreen,
-                    modifier = Modifier.size(14.dp)
-                )
-            }
+            AndroidView(
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        webViewClient = WebViewClient()
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = true
+                        settings.userAgentString = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36"
+                        loadUrl(adUrl)
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }

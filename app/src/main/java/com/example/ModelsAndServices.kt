@@ -170,6 +170,15 @@ object AuthManager {
     fun initialize(ctx: Context) {
         context = ctx.applicationContext
         try {
+            if (com.google.firebase.FirebaseApp.getApps(context).isEmpty()) {
+                val options = com.google.firebase.FirebaseOptions.Builder()
+                    .setApiKey("AIzaSyFakeKeyForDrClickerLocalSandboxOnly")
+                    .setApplicationId("1:1234567890:android:mockapp")
+                    .setProjectId("dr-clicker")
+                    .build()
+                com.google.firebase.FirebaseApp.initializeApp(context, options)
+                Log.d("AuthManager", "FirebaseApp initialized programmatically for high-fidelity fallback sandbox!")
+            }
             firebaseAuth = FirebaseAuth.getInstance()
             Log.d("AuthManager", "Firebase Authentication initialized successfully!")
         } catch (e: Exception) {
@@ -999,10 +1008,7 @@ class SettingsActivity : ComponentActivity() {
                                 DrClickerController.updateMaxPrice(maxPrice.toIntOrNull() ?: 100000)
                                 // Parse click interval
                                 val interval = clickInterval.toIntOrNull() ?: 250
-                                DrClickerController.javaClass.getDeclaredMethod("updateClickInterval", Int::class.java).apply {
-                                    isAccessible = true
-                                    invoke(DrClickerController, interval)
-                                }
+                                DrClickerController.updateClickInterval(interval)
                                 Toast.makeText(this@SettingsActivity, "Configuration successfully locked in!", Toast.LENGTH_SHORT).show()
                                 finish()
                             },
