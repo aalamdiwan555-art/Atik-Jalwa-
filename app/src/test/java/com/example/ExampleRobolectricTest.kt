@@ -177,8 +177,8 @@ class ExampleRobolectricTest {
         val uid = AuthManager.currentUser.value?.uid
         assertNotNull(uid)
 
-        // Admin blocks/suspends user
-        AuthManager.updateUserStatus(uid!!, UserStatus.SUSPENDED)
-        assertEquals(UserStatus.SUSPENDED, AuthManager.currentUser.value?.status)
+        // Admin blocks/rejects user
+        AuthManager.updateUserStatus(uid!!, UserStatus.REJECTED)
+        assertEquals(UserStatus.REJECTED, AuthManager.currentUser.value?.status)
     }
 }

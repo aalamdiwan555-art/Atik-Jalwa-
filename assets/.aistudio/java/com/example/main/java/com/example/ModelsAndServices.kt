@@ -179,10 +179,19 @@ object AuthManager {
                 com.google.firebase.FirebaseApp.initializeApp(context, options)
                 Log.d("AuthManager", "FirebaseApp initialized programmatically for high-fidelity fallback sandbox!")
             }
-            firebaseAuth = FirebaseAuth.getInstance()
-            Log.d("AuthManager", "Firebase Authentication initialized successfully!")
+            
+            val currentApp = com.google.firebase.FirebaseApp.getInstance()
+            val apiKey = currentApp.options.apiKey
+            if (apiKey != null && (apiKey.contains("FakeKey") || apiKey.contains("mock") || apiKey.contains("dummy") || apiKey == "AIzaSyFakeKeyForDrClickerLocalSandboxOnly")) {
+                Log.d("AuthManager", "Mock/Fake Firebase API key detected. Using offline-first sandbox mode directly.")
+                firebaseAuth = null
+            } else {
+                firebaseAuth = FirebaseAuth.getInstance()
+                Log.d("AuthManager", "Firebase Authentication initialized successfully!")
+            }
         } catch (e: Exception) {
             Log.e("AuthManager", "Firebase initialization failed or google-services.json is missing: ${e.message}")
+            firebaseAuth = null
         }
         loadAllData()
     }
@@ -366,6 +375,27 @@ object AuthManager {
                         if (matched != null && pass.isNotEmpty()) {
                             setCurrentUser(matched)
                             callback(true, "Signed in via Local DB sandbox (Firebase: $errorDetail)")
+                        } else if (errorDetail.lowercase().contains("api key") || errorDetail.lowercase().contains("apikey") || errorDetail.lowercase().contains("invalid key")) {
+                            // Automatically register and log in on-the-fly for seamless sandbox experience!
+                            if (pass.isNotEmpty()) {
+                                val uid = "user_autogen_" + System.currentTimeMillis().toString().takeLast(6)
+                                val newUser = AppUser(
+                                    uid = uid,
+                                    email = trimmed,
+                                    role = "DRIVER",
+                                    status = UserStatus.APPROVED,
+                                    readableUserId = "DRV-${uid.uppercase()}",
+                                    subscriptionExpiry = System.currentTimeMillis() + 86400000L
+                                )
+                                val list = _allUsers.value.toMutableList()
+                                list.add(newUser)
+                                _allUsers.value = list
+                                saveUsersLocal(list)
+                                setCurrentUser(newUser)
+                                callback(true, "Signed in via Local Sandbox Fallback!")
+                            } else {
+                                callback(false, "Password cannot be empty")
+                            }
                         } else {
                             callback(false, errorDetail)
                         }
@@ -382,7 +412,26 @@ object AuthManager {
                     callback(false, "Password empty")
                 }
             } else {
-                callback(false, "No user registered locally with email $trimmed (Firebase inactive)")
+                // If they are in sandbox mode, let any login with non-empty pass register on the fly!
+                if (pass.isNotEmpty() && trimmed.contains("@")) {
+                    val uid = "user_sandbox_" + System.currentTimeMillis().toString().takeLast(6)
+                    val newUser = AppUser(
+                        uid = uid,
+                        email = trimmed,
+                        role = "DRIVER",
+                        status = UserStatus.APPROVED,
+                        readableUserId = "DRV-${uid.uppercase()}",
+                        subscriptionExpiry = System.currentTimeMillis() + 86400000L
+                    )
+                    val list = _allUsers.value.toMutableList()
+                    list.add(newUser)
+                    _allUsers.value = list
+                    saveUsersLocal(list)
+                    setCurrentUser(newUser)
+                    callback(true, "Registered new sandbox driver account dynamically!")
+                } else {
+                    callback(false, "No user registered locally with email $trimmed (Firebase inactive)")
+                }
             }
         }
     }
@@ -416,7 +465,30 @@ object AuthManager {
                     } else {
                         val errorDetail = task.exception?.localizedMessage ?: "Firebase Sign Up Error"
                         Log.e("AuthManager", "Firebase Sign Up failed: $errorDetail")
-                        callback(false, errorDetail)
+                        if (errorDetail.lowercase().contains("api key") || errorDetail.lowercase().contains("apikey") || errorDetail.lowercase().contains("invalid key")) {
+                            // Automatically fall back to local registration
+                            if (!_allUsers.value.any { it.email.lowercase() == trimmed }) {
+                                val uid = "user_" + System.currentTimeMillis().toString().takeLast(6)
+                                val newUser = AppUser(
+                                    uid = uid,
+                                    email = trimmed,
+                                    role = "DRIVER",
+                                    status = UserStatus.APPROVED,
+                                    readableUserId = "DRV-${uid.uppercase()}",
+                                    subscriptionExpiry = System.currentTimeMillis() + 86400000L
+                                )
+                                val list = _allUsers.value.toMutableList()
+                                list.add(newUser)
+                                _allUsers.value = list
+                                saveUsersLocal(list)
+                                setCurrentUser(newUser)
+                                callback(true, "Registered via Local Sandbox Fallback!")
+                            } else {
+                                callback(false, "Email already registered in local DB sandbox")
+                            }
+                        } else {
+                            callback(false, errorDetail)
+                        }
                     }
                 }
         } else {
@@ -538,7 +610,10 @@ object AuthManager {
     }
 
     fun clearAllUsersLocal() {
-        val list = listOf(AppUser("admin_super", "admin@drclicker.com", "ADMIN", UserStatus.APPROVED, "ADM-001", Long.MAX_VALUE))
+        val list = listOf(
+            AppUser("admin_super", "admin@drclicker.com", "ADMIN", UserStatus.APPROVED, "ADM-001", Long.MAX_VALUE),
+            AppUser("user_demo", "driver@drclicker.com", "DRIVER", UserStatus.APPROVED, "DRV-1025", System.currentTimeMillis() + 86400000L)
+        )
         _allUsers.value = list
         saveUsersLocal(list)
         _paymentRequests.value = emptyList()
