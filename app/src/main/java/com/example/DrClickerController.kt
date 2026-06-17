@@ -61,7 +61,7 @@ object DrClickerController {
     private val _speedMode = MutableStateFlow("ANTIBAN")
     val speedMode: StateFlow<String> = _speedMode.asStateFlow()
 
-    private val _adNetworkUrl = MutableStateFlow("https://www.effectivecpmnetwork.com/jdc7sf11?key=803214320944d67a2cc8608b8beeae14")
+    private val _adNetworkUrl = MutableStateFlow("https://www.effectivecpmnetwork.com/nu4iirzf?key=6f36daeae47ef21f19c271d0cc2afb62")
     val adNetworkUrl: StateFlow<String> = _adNetworkUrl.asStateFlow()
 
     // Log tracking for real-time dashboard visualization
@@ -418,7 +418,7 @@ object DrClickerController {
         _clickInterval.value = prefs.getInt(KEY_CLICK_INTERVAL, 250)
         _randomJitter.value = prefs.getInt(KEY_RANDOM_JITTER, 15)
         _adPoints.value = prefs.getInt("ad_points", 10)
-        _adNetworkUrl.value = prefs.getString("ad_network_url", "https://www.effectivecpmnetwork.com/jdc7sf11?key=803214320944d67a2cc8608b8beeae14") ?: "https://www.effectivecpmnetwork.com/jdc7sf11?key=803214320944d67a2cc8608b8beeae14"
+        _adNetworkUrl.value = prefs.getString("ad_network_url", "https://www.effectivecpmnetwork.com/nu4iirzf?key=6f36daeae47ef21f19c271d0cc2afb62") ?: "https://www.effectivecpmnetwork.com/nu4iirzf?key=6f36daeae47ef21f19c271d0cc2afb62"
     }
 
     fun updateAdNetworkUrl(url: String) {

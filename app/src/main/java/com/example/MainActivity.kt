@@ -2167,9 +2167,9 @@ fun MainDashboardScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val items = listOf(
-                    Triple("dashboard", "Speed Deck", Icons.Default.Home),
-                    Triple("subscriptions", "Premium Pro", Icons.Default.Star),
-                    Triple("profile", "ID Card", Icons.Default.Person)
+                    Triple("dashboard", "Automation", Icons.Default.Home),
+                    Triple("subscriptions", "Adherence Hub", Icons.Default.Warning),
+                    Triple("profile", "Driver Card", Icons.Default.Person)
                 )
                 items.forEach { (tabId, label, icon) ->
                     val isSelected = selectedTab == tabId
@@ -2179,7 +2179,6 @@ fun MainDashboardScreen(
                             .background(if (isSelected) neonGreen.copy(alpha = 0.12f) else Color.Transparent)
                             .clickable {
                                 selectedTab = tabId
-                                active10sAdVisible = true
                             }
                             .padding(vertical = 6.dp, horizontal = 10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -2675,10 +2674,13 @@ fun DashboardContentTab(
                 // BUTTON 1: START
                 Card(
                     onClick = {
-                        if (!hasOverlayPermission || !hasAccessibilityPermission) {
+                        val isActivated = user.subscriptionExpiry > System.currentTimeMillis()
+                        if (!isActivated) {
+                            Toast.makeText(context, "⚠️ Adherence Required! Kripya Adherence Hub me jakar Daily Driving Adherence Quiz complete karein.", Toast.LENGTH_LONG).show()
+                        } else if (!hasOverlayPermission || !hasAccessibilityPermission) {
                             Toast.makeText(context, "Kripya overlay aur accessibility permissions pehle enable karein.", Toast.LENGTH_LONG).show()
                         } else {
-                            onTrigger10sAd() // Mandatory 10-second sponsor interstitial
+                            onTrigger10sAd() // Mandatory 10-second sponsor interstitial ad with sponsor smartlink
                             onTriggerOverlayService(true)
                             Toast.makeText(context, "Overlay panel launched successfully!", Toast.LENGTH_SHORT).show()
                         }
@@ -4790,6 +4792,19 @@ fun SubscriptionsScreenTab(
     context: Context
 ) {
     val points by DrClickerController.adPoints.collectAsState()
+    val isActivated = user.subscriptionExpiry > System.currentTimeMillis()
+
+    // Safety adhesion quiz responses
+    var q1Answer by remember { mutableStateOf<Int?>(null) }
+    var q2Answer by remember { mutableStateOf<Int?>(null) }
+    var q3Answer by remember { mutableStateOf<Int?>(null) }
+    var q4Answer by remember { mutableStateOf<Int?>(null) }
+
+    val isQuizPassed = q1Answer == 1 && q2Answer == 1 && q3Answer == 0 && q4Answer == 0
+    var pledgeSubmittedMessage by remember { mutableStateOf<String?>(null) }
+
+    val neonYellow = Color(0xFFFFB300)
+    val neonRed = Color(0xFFFE3B62)
 
     Column(
         modifier = Modifier
@@ -4799,46 +4814,47 @@ fun SubscriptionsScreenTab(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(modifier = Modifier.height(10.dp))
-        
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
             Icon(
-                imageVector = Icons.Default.Star,
-                contentDescription = "Ad Token Reward Hub",
+                imageVector = Icons.Default.Warning,
+                contentDescription = "Safety compliance key",
                 tint = neonGreen,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "DRIVER RIDE POINTS HUB",
-                fontSize = 16.sp,
+                text = "DR.CLICKER STRICT ADHERENCE SYSTEM",
+                fontSize = 15.sp,
                 color = neonGreen,
                 fontWeight = FontWeight.Black,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                letterSpacing = 0.5.sp
             )
         }
         Text(
-            text = "Dr.Clicker is 100% free! Watch sponsor ads and earn high-speed ride points active in your driver ledger.",
+            text = "Dr.Clicker does not require paid subscription plans or sponsor ads! Activation is granted purely based on strict compliance with transport guidelines and active safety commits.",
             fontSize = 11.sp,
-            color = Color.Gray,
+            color = Color.LightGray,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
+            modifier = Modifier.padding(top = 6.dp, bottom = 20.dp)
         )
-        
-        // Active Status Card
+
+        // Active Safety Status Card
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 16.dp),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-            border = BorderStroke(1.dp, neonGreen)
+            border = BorderStroke(1.2.dp, if (isActivated) neonGreen else neonYellow)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "YOUR ACTIVE LEDGER BALANCE:",
+                    text = "YOUR ACTIVE ADHERENCE STATE:",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.Gray
@@ -4850,116 +4866,286 @@ fun SubscriptionsScreenTab(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "$points Ride Points Available",
-                        fontSize = 18.sp,
+                        text = if (isActivated) "🟢 COMPLIANT (Active)" else "🟡 PENDING VERIFICATION",
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Black,
-                        color = neonGreen
+                        color = if (isActivated) neonGreen else neonYellow
                     )
-                    
+
                     Box(
                         modifier = Modifier
-                            .background(neonGreen.copy(alpha = 0.1f), RoundedCornerShape(20.dp))
+                            .background(
+                                if (isActivated) neonGreen.copy(alpha = 0.12f) else neonYellow.copy(
+                                    alpha = 0.12f
+                                ), RoundedCornerShape(20.dp)
+                            )
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = "1 AD = 1 RIDE",
-                            fontSize = 9.sp,
+                            text = if (isActivated) "VERIFIED DRIVER" else "ACTION KEY EXPIRED",
+                            fontSize = 8.sp,
                             fontWeight = FontWeight.Black,
-                            color = neonGreen
+                            color = if (isActivated) neonGreen else neonYellow
                         )
                     }
                 }
-                
-                Spacer(modifier = Modifier.height(12.dp))
+
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Remaining points are spent automatically to accept high-speed ride-sharing match jobs in the background.",
+                    text = "Clicker point balance: $points automations currently loaded.",
+                    fontSize = 11.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "To keep using automated scanning, you must strictly pass the daily safety test and renew your safety pledge.",
                     fontSize = 10.sp,
                     color = Color.LightGray
                 )
             }
         }
-        
-        // Watch Actions Selection Column
-        Text(
-            text = "CHOOSE AD MODULE TO CLAIM RIDES",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Black,
-            color = Color.LightGray,
-            modifier = Modifier
-                .align(Alignment.Start)
-                .padding(bottom = 10.dp)
-        )
-        
-        listOf(
-            Triple("📺 QUICK AD SPONSOR", "Earn +1 Ride Point (10s watch time)", onTrigger10sAd),
-            Triple("🎬 PRESTIGE VIDEO AD", "Earn +1 Ride Point (20s watch time)", onTrigger30sAd),
-            Triple("🏆 MEGA REWARD AD BUNDLE", "Earn +1 Ride Point (30s watch time)", onTrigger30sAd)
-        ).forEach { (title, desc, action) ->
+
+        if (pledgeSubmittedMessage != null) {
             Card(
-                onClick = action,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 12.dp),
+                    .padding(bottom = 20.dp),
                 shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF132214)),
+                border = BorderStroke(1.dp, neonGreen)
+            ) {
+                Column(modifier = Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("🎉 PLEDGE CONFIRMED SUCCESSFUL!", color = neonGreen, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(pledgeSubmittedMessage ?: "", color = Color.White, fontSize = 11.sp, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { pledgeSubmittedMessage = null },
+                        colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("BACK TO PORTAL PANEL", fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
+        } else {
+            // Safety Compliance commitments Checklist Box
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 20.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = cardBg),
                 border = BorderStroke(1.dp, Color.DarkGray)
             ) {
-                Row(
-                    modifier = Modifier
-                        .padding(14.dp)
-                        .fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = title,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = neonGreen
-                        )
-                        Text(
-                            text = desc,
-                            fontSize = 10.sp,
-                            color = Color.LightGray,
-                            modifier = Modifier.padding(top = 2.dp)
-                        )
-                    }
-                    Box(
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "📋 DAILY DRIVING ADHERENCE QUIZ",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Safety requirements ko confirm karne ke liye sahi options ko check karein. Galat uttar dene par automation enable nahi hoga.",
+                        color = Color.Gray,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+                    )
+
+                    // Question 1
+                    Text(
+                        text = "Q1. App parameters ko adjust ya configure karne ka sabse safe time kab hai?",
+                        fontSize = 11.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
                         modifier = Modifier
-                            .background(neonGreen, RoundedCornerShape(6.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .fillMaxWidth()
+                            .clickable { q1Answer = 0 }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = q1Answer == 0, onClick = { q1Answer = 0 }, colors = RadioButtonDefaults.colors(selectedColor = neonRed))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Highway par bike chalate samay speed badhane ke liye.", fontSize = 10.sp, color = Color.LightGray)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { q1Answer = 1 }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = q1Answer == 1, onClick = { q1Answer = 1 }, colors = RadioButtonDefaults.colors(selectedColor = neonGreen))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Sirf gaadi khadi (stationary) karke, ya off-duty rest period me.", fontSize = 10.sp, color = Color.LightGray)
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    androidx.compose.material3.HorizontalDivider(color = Color.DarkGray)
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Question 2
+                    Text(
+                        text = "Q2. Active scanning auto-clicker ke chalte bike ki maximum safety speed kitni honi chahiye?",
+                        fontSize = 11.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { q2Answer = 0 }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = q2Answer == 0, onClick = { q2Answer = 0 }, colors = RadioButtonDefaults.colors(selectedColor = neonRed))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("80-100 km/h ki tez raftaar taaki matches miss na ho.", fontSize = 10.sp, color = Color.LightGray)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { q2Answer = 1 }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = q2Answer == 1, onClick = { q2Answer = 1 }, colors = RadioButtonDefaults.colors(selectedColor = neonGreen))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Strict maximum of 50 km/h municipal residential areas me safe driving ke liye.", fontSize = 10.sp, color = Color.LightGray)
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    androidx.compose.material3.HorizontalDivider(color = Color.DarkGray)
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Question 3
+                    Text(
+                        text = "Q3. Driver health aur stress se bachne ke liye rest breaks lene ka kya protocol hai?",
+                        fontSize = 11.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { q3Answer = 0 }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = q3Answer == 0, onClick = { q3Answer = 0 }, colors = RadioButtonDefaults.colors(selectedColor = neonGreen))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Har 3 ghante ki continuous screening ke baad kam se kam 15 minute ka rest break lena anivarya hai.", fontSize = 10.sp, color = Color.LightGray)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { q3Answer = 1 }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = q3Answer == 1, onClick = { q3Answer = 1 }, colors = RadioButtonDefaults.colors(selectedColor = neonRed))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Bina koi break liye lagatar 12 ghante screen ke aage scan chalana.", fontSize = 10.sp, color = Color.LightGray)
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    androidx.compose.material3.HorizontalDivider(color = Color.DarkGray)
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Question 4
+                    Text(
+                        text = "Q4. Kya aap municipal traffic guidelines, helmets aur signals ka strict adherence karenge?",
+                        fontSize = 11.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { q4Answer = 0 }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = q4Answer == 0, onClick = { q4Answer = 0 }, colors = RadioButtonDefaults.colors(selectedColor = neonGreen))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Haan, mai poorn roop se road safety aur laws ka adherence commit karta hu.", fontSize = 10.sp, color = Color.LightGray)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { q4Answer = 1 }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = q4Answer == 1, onClick = { q4Answer = 1 }, colors = RadioButtonDefaults.colors(selectedColor = neonRed))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Nahi, mere liye signal rules adhere karna important nahi hai.", fontSize = 10.sp, color = Color.LightGray)
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Button(
+                        onClick = {
+                            if (isQuizPassed) {
+                                // Add 100 free ride points on-the-fly and extend active license for 7 days
+                                DrClickerController.addPoints(100)
+                                AuthManager.updateUserSubscription(user.uid, System.currentTimeMillis() + 86400000L * 7L)
+                                playChime(context, true)
+                                pledgeSubmittedMessage = "Thank you! Your daily Safety Pledge has been logged as COMPLIANT. +100 Ride Click Credits have been added to your ledger. Your automated driving license is now active for the next 7 days."
+                                q1Answer = null
+                                q2Answer = null
+                                q3Answer = null
+                                q4Answer = null
+                            } else {
+                                Toast.makeText(context, "Kripya sabhi sawalo ke sahi uttar dekar policy commit karein!", Toast.LENGTH_LONG).show()
+                                playChime(context, false)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isQuizPassed) neonGreen else Color.DarkGray,
+                            contentColor = if (isQuizPassed) Color.Black else Color.LightGray
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
                     ) {
                         Text(
-                            text = "+1 RIDE",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Color.Black
+                            text = if (isQuizPassed) "✍️ SUBMIT ROAD COMPLIANCE PLEDGE" else "⚠️ COMPLETE ALL ANSWERS SINCERELY",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold
                         )
                     }
                 }
             }
         }
-        
-        // Permanent Bottom Banner Support Info
+
+        // Informative safety notice card
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 16.dp),
+                .padding(top = 8.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF13151A)),
             shape = RoundedCornerShape(12.dp),
             border = BorderStroke(1.dp, Color.DarkGray)
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Text(
-                    text = "ℹ️ How the Ad System Works",
+                    text = "⚠️ Strict Enforcement Protocol",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "This application handles complex, high-performance overlay rendering and natural humanlike gestures. Watching relevant ads keeps the local developer team running without requiring subscription payments or paid models. Every ad watched claims 1 point which grants 1 automated background ride job matching.",
+                    text = "Automated matching tools carry deep responsibility. Any driver reported or caught violating speed limits (over 50km/h inside cities) or running signals will have their account immediately and permanently banned from the Dr.Clicker secure network automatically. Safety always drives first.",
                     fontSize = 9.sp,
                     color = Color.Gray,
                     lineHeight = 13.sp
@@ -5453,23 +5639,23 @@ fun DrClickerBrandLogo(modifier: Modifier = Modifier) {
         val cy = height / 2f
         val radius = width.coerceAtMost(height) / 2f
 
-        // 1. Sleek futuristic background (Pure White background card style)
+        // 1. Sleek futuristic background (Pure Black background circle)
         drawCircle(
-            color = Color(0xFFFFFFFF),
+            color = Color(0xFF000000),
             radius = radius
         )
 
-        // 2. Glowing outer speed-ring (Brown Gradient border)
+        // 2. Glowing outer speed-ring (White/Silver sweep gradient)
         drawCircle(
             brush = Brush.sweepGradient(
-                colors = listOf(Color(0xFF5D4037), Color(0xFFEFE6E2), Color(0xFF5D4037)),
+                colors = listOf(Color(0xFF777777), Color(0xFFFFFFFF), Color(0xFF333333), Color(0xFF777777)),
                 center = androidx.compose.ui.geometry.Offset(cx, cy)
             ),
             radius = radius - 5f,
             style = Stroke(width = 4f)
         )
 
-        // 3. Mini radar dashboard accents (Tick marks around the rim)
+        // 3. Mini radar dashboard accents (Tick marks around the rim - White & Silver tones)
         for (angle in 0 until 360 step 30) {
             val angleRad = Math.toRadians(angle.toDouble())
             val startRadius = radius - 18f
@@ -5480,29 +5666,29 @@ fun DrClickerBrandLogo(modifier: Modifier = Modifier) {
             val endY = cy + (endRadius * Math.sin(angleRad)).toFloat()
 
             drawLine(
-                color = if (angle % 90 == 0) Color(0xFF5D4037) else Color(0xFF5D4037).copy(alpha = 0.3f),
+                color = if (angle % 90 == 0) Color(0xFFFFFFFF) else Color(0xFF777777).copy(alpha = 0.5f),
                 start = androidx.compose.ui.geometry.Offset(startX, startY),
                 end = androidx.compose.ui.geometry.Offset(endX, endY),
                 strokeWidth = if (angle % 90 == 0) 3f else 1.5f
             )
         }
 
-        // 4. Futuristic Central Steering Wheel Ring
+        // 4. Futuristic Central Steering Wheel Ring (White & Silver)
         val wheelRadius = radius * 0.65f
         drawCircle(
-            color = Color(0xFFFAF6F0),
+            color = Color(0xFF222222),
             radius = wheelRadius,
             style = Stroke(width = 16f)
         )
         drawCircle(
-            color = Color(0xFF5D4037).copy(alpha = 0.8f),
+            color = Color(0xFFFFFFFF).copy(alpha = 0.8f),
             radius = wheelRadius,
             style = Stroke(width = 2f)
         )
 
         // Steering Wheel Spokes (Modern 3-point Formula 1 style sporty wheel)
-        val spokeColor = Color(0xFFEDE8E5)
-        val spokeGlow = Color(0xFF8D6E63)
+        val spokeColor = Color(0xFF444444)
+        val spokeGlow = Color(0xFF888888)
 
         // Left Spoke
         drawLine(
@@ -5548,11 +5734,11 @@ fun DrClickerBrandLogo(modifier: Modifier = Modifier) {
 
         // 5. Central Glowing Auto-Click Hub
         drawCircle(
-            color = Color(0xFFFFFFFF),
+            color = Color(0xFF111111),
             radius = radius * 0.22f
         )
         drawCircle(
-            color = Color(0xFF5D4037),
+            color = Color(0xFFFFFFFF),
             radius = radius * 0.22f,
             style = Stroke(width = 3f)
         )
@@ -5569,7 +5755,7 @@ fun DrClickerBrandLogo(modifier: Modifier = Modifier) {
         drawPath(
             path = pointerPath,
             brush = Brush.linearGradient(
-                colors = listOf(Color(0xFFFFFFFF), Color(0xFF5D4037)),
+                colors = listOf(Color(0xFFFFFFFF), Color(0xFF000000)),
                 start = androidx.compose.ui.geometry.Offset(cx, cy - radius * 0.18f),
                 end = androidx.compose.ui.geometry.Offset(cx, cy + radius * 0.12f)
             )
@@ -5577,7 +5763,7 @@ fun DrClickerBrandLogo(modifier: Modifier = Modifier) {
 
         // Outer pulse circle
         drawCircle(
-            color = Color(0xFF5D4037).copy(alpha = 0.3f),
+            color = Color(0xFFFFFFFF).copy(alpha = 0.3f),
             radius = radius * 0.35f,
             style = Stroke(width = 1.5f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f))
         )
@@ -5629,7 +5815,7 @@ fun DevAdminPanel(onDismiss: () -> Unit) {
                     ) {
                         Column {
                             Text(
-                                text = "🔧 ATIK JALWA CONTROL DECK",
+                                text = "🔧 DR.CLICKER CONTROL DECK",
                                 fontSize = 14.sp,
                                 color = Color(0xFF00E5FF),
                                 fontWeight = FontWeight.Bold
@@ -5881,7 +6067,7 @@ fun AdminDashboardPage(
             }
 
             // -------------------------------------------------------------
-            // SECTION TABS: DRIVERS DIRECTORY vs PAYMENT CLAIMS
+            // SECTION TABS: DRIVERS DIRECTORY vs ADHERENCE AUDITS
             // -------------------------------------------------------------
             Row(
                 modifier = Modifier
@@ -5917,9 +6103,9 @@ fun AdminDashboardPage(
                 ) {
                     val pendingClaimsCount = paymentRequests.count { it.status == PaymentStatus.PENDING }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = "Payments", tint = if (adminSectionTab == "PAYMENTS") neonGreen else Color.Gray, modifier = Modifier.size(13.dp))
+                        Icon(Icons.Default.CheckCircle, contentDescription = "Compliance Audits", tint = if (adminSectionTab == "PAYMENTS") neonGreen else Color.Gray, modifier = Modifier.size(13.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("VERIFY PAYMENTS ($pendingClaimsCount)", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (adminSectionTab == "PAYMENTS") neonGreen else Color.Gray)
+                        Text("VERIFY ADHERENCE ($pendingClaimsCount)", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (adminSectionTab == "PAYMENTS") neonGreen else Color.Gray)
                     }
                 }
             }
@@ -6262,7 +6448,7 @@ fun AdminDashboardPage(
                     }
                 }
 
-                // PAYMENT CLAIMS VERIFICATION HUB
+                // SAFETY PLEDGES VERIFICATION HUB
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
                     shape = RoundedCornerShape(12.dp),
@@ -6270,20 +6456,20 @@ fun AdminDashboardPage(
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Text(
-                            text = "💸 BANK DEPOSIT & UPI VERIFICATIONS",
+                            text = "🛡️ SAFETY ADHERENCE & ROAD PLEDGES LOG",
                             color = Color.White,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(bottom = 4.dp)
                         )
                         Text(
-                            text = "Aap apne PhonePe, GPay, ya Paytm business app par transaction check karein ki user dwara enter kiya gaya 12-digit UTR/Ref No. match ho raha hai ya nahi. Match hone par niche diye '✅ APPROVE & ACTIVATE' button par touch karein. Kisi software ki zarurat nahi hai.",
+                            text = "Drivers dwara submit kiye gaye Road Safety Pledges aur compliance logs ki list niche di gayi hai. Review karein aur unki active compliance status update karne ke liye niche '✅ VERIFY & APPROVE' button par tap karein.",
                             color = Color.LightGray,
                             fontSize = 11.sp,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Color(0xFF1E2112), RoundedCornerShape(8.dp))
-                                .border(1.dp, neonYellow.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                .background(Color(0xFF132214), RoundedCornerShape(8.dp))
+                                .border(1.dp, neonGreen.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
                                 .padding(12.dp)
                         )
 
@@ -6292,16 +6478,16 @@ fun AdminDashboardPage(
                         OutlinedTextField(
                             value = paymentSearchQuery,
                             onValueChange = { paymentSearchQuery = it },
-                            label = { Text("Search by email or reference UTR") },
+                            label = { Text("Search by email or pledge reference ID") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
                             shape = RoundedCornerShape(8.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
                                 unfocusedTextColor = Color.LightGray,
-                                focusedBorderColor = neonYellow,
+                                focusedBorderColor = neonGreen,
                                 unfocusedBorderColor = Color.DarkGray,
-                                focusedLabelColor = neonYellow
+                                focusedLabelColor = neonGreen
                             )
                         )
 
@@ -6317,7 +6503,7 @@ fun AdminDashboardPage(
                                         .weight(1f)
                                         .clip(RoundedCornerShape(6.dp))
                                         .background(if (isSel) Color(0xFF222228) else Color.Transparent)
-                                        .border(1.dp, if (isSel) neonYellow else Color.DarkGray, RoundedCornerShape(6.dp))
+                                        .border(1.dp, if (isSel) neonGreen else Color.DarkGray, RoundedCornerShape(6.dp))
                                         .clickable { paymentFilterTab = pTab }
                                         .padding(vertical = 5.dp),
                                     contentAlignment = Alignment.Center
@@ -6325,7 +6511,7 @@ fun AdminDashboardPage(
                                     Text(
                                         text = pTab,
                                         fontSize = 9.sp,
-                                        color = if (isSel) neonYellow else Color.Gray,
+                                        color = if (isSel) neonGreen else Color.Gray,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -6348,7 +6534,7 @@ fun AdminDashboardPage(
 
                         if (displayedClaims.isEmpty()) {
                             Text(
-                                text = "Zero payment claims recorded under filter.",
+                                text = "Zero compliance pledges recorded under filter.",
                                 fontSize = 11.sp,
                                 color = Color.Gray,
                                 textAlign = TextAlign.Center,
@@ -6380,7 +6566,7 @@ fun AdminDashboardPage(
                                                     Text(req.planName, color = neonGreen, fontSize = 8.sp, fontWeight = FontWeight.Bold)
                                                 }
                                                 Spacer(modifier = Modifier.width(6.dp))
-                                                Text("₹${req.payableAmount.toInt()}", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
+                                                Text("SAFE STATUS", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                             }
                                             
                                             Spacer(modifier = Modifier.height(4.dp))
@@ -6432,7 +6618,7 @@ fun AdminDashboardPage(
 
                                     // Display Details Key UTR
                                     Text(
-                                        text = "SPONSOR AD SESSION IDENTIFIER:",
+                                        text = "ROAD COMPLIANCE WORKFLOW TRANSACTION / TOKEN ID:",
                                         fontSize = 8.sp,
                                         color = Color.Gray,
                                         fontWeight = FontWeight.Bold
@@ -6448,13 +6634,13 @@ fun AdminDashboardPage(
                                     )
 
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Verification Type / Details:", fontSize = 9.sp, color = Color.Gray)
+                                        Text("Pledge Commit Note:", fontSize = 9.sp, color = Color.Gray)
                                         Text("${req.paymentMethod} (${req.paymentDetails})", fontSize = 9.sp, color = Color.White)
                                     }
                                     
                                     val dateStr = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(req.timestamp))
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Watched Time:", fontSize = 9.sp, color = Color.Gray)
+                                        Text("Submitted Time:", fontSize = 9.sp, color = Color.Gray)
                                         Text(dateStr, fontSize = 9.sp, color = Color.LightGray)
                                     }
 
@@ -6467,27 +6653,27 @@ fun AdminDashboardPage(
                                             Button(
                                                 onClick = {
                                                     AuthManager.approvePaymentRequest(req.transactionId)
-                                                    Toast.makeText(context, "AD SESSION AUDITED! Duration granted to driver.", Toast.LENGTH_LONG).show()
+                                                    Toast.makeText(context, "PLEDGE COMPLIANT AND VERIFIED! Safety license granted to driver.", Toast.LENGTH_LONG).show()
                                                 },
                                                 colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black),
                                                 modifier = Modifier.weight(1.3f).height(32.dp),
                                                 shape = RoundedCornerShape(6.dp),
                                                 contentPadding = PaddingValues(0.dp)
                                             ) {
-                                                Text("✅ VOUCH & APPROVE", fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                                Text("✅ VERIFY & APPROVE", fontSize = 9.sp, fontWeight = FontWeight.Black)
                                             }
 
                                             Button(
                                                 onClick = {
                                                     AuthManager.rejectPaymentRequest(req.transactionId)
-                                                    Toast.makeText(context, "SESSION INVALIDATED", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(context, "PLEDGE NOT MET OR DENIED", Toast.LENGTH_SHORT).show()
                                                 },
                                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2B1F20), contentColor = neonRed),
                                                 modifier = Modifier.weight(1f).height(32.dp),
                                                 shape = RoundedCornerShape(6.dp),
                                                 contentPadding = PaddingValues(0.dp)
                                               ) {
-                                                Text("❌ INVALIDATE", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                                Text("❌ REJECT PLEDGE", fontSize = 9.sp, fontWeight = FontWeight.Bold)
                                             }
                                         }
                                     }
@@ -6498,7 +6684,7 @@ fun AdminDashboardPage(
                 }
             }
 
-            // --- NEW: DYNAMIC SUBSCRIPTION OVERWRITE CONTROLLER ---
+            // --- NEW: DYNAMIC SAFETY LICENSE OVERWRITE CONTROLLER ---
             Card(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                 shape = RoundedCornerShape(12.dp),
@@ -6510,21 +6696,21 @@ fun AdminDashboardPage(
                         modifier = Modifier.padding(bottom = 6.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Star,
-                            contentDescription = "Subscription",
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Subscription Override",
                             tint = neonGreen,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "AD-HOC SUBSCRIPTION GRANTED DESK",
+                            text = "SAFETY LICENSE AD-HOC GRANTS",
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                     Text(
-                        text = "Instantly grant, extend or revoke subscription permissions for any driver email ID on the platform.",
+                        text = "Instantly grant, extend or revoke driver safety and compliance state manually for any registered driver email.",
                         color = Color.Gray,
                         fontSize = 10.sp,
                         lineHeight = 14.sp,
@@ -6634,10 +6820,10 @@ fun AdminDashboardPage(
                                 val finalExpiryTime = if (durationMs > 0L) System.currentTimeMillis() + durationMs else 0L
                                 AuthManager.updateUserSubscription(userToUpdate.uid, finalExpiryTime)
                                 if (finalExpiryTime == 0L) {
-                                    Toast.makeText(context, "Subscription successfully stopped or revoked for ${userToUpdate.email}", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, "Road Safety compliance license stopped or revoked for ${userToUpdate.email}", Toast.LENGTH_LONG).show()
                                 } else {
                                     val formattedDate = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(finalExpiryTime))
-                                    Toast.makeText(context, "Granted PRO subscription access to ${userToUpdate.email} valid until: $formattedDate", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, "Granted active compliance state authorization to ${userToUpdate.email} valid until: $formattedDate", Toast.LENGTH_LONG).show()
                                 }
                                 subEmail = ""
                                 subCustomDays = ""
@@ -6647,7 +6833,7 @@ fun AdminDashboardPage(
                         modifier = Modifier.fillMaxWidth().height(42.dp),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text("AUTHORIZE SUBSCRIPTION ACCESS", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("AUTHORIZE SAFETY COMPLIANCE LICENSE", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

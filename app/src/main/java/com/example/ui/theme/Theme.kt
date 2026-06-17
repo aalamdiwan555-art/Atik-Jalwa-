@@ -9,20 +9,20 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.graphics.Color
 import com.example.DrClickerController
 
-// Crisp clean high-contrast Light mode with White background and Black text
+// Elegant high-contrast premium Black and White Monochromatic color scheme
 private val MagicalLightColorScheme =
   lightColorScheme(
-    primary = Color(0xFF00A254),       // Premium Forest Green
-    secondary = Color(0xFFC48B00),     // Amber Accent
-    tertiary = Color(0xFF00838F),      // Deep Cyber Teal
-    background = Color(0xFFFFFFFF),    // Pure Clean White Background
-    surface = Color(0xFFF1F5F9),       // Light Elegant Card Surface
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onBackground = Color(0xFF000000),  // Sharp Black Text
-    onSurface = Color(0xFF000000),     // Sharp Black Text
-    surfaceVariant = Color(0xFFE2E8F0),// Slate steel borders
-    onSurfaceVariant = Color(0xFF00A254)
+    primary = Color(0xFFFFFFFF),       // Pure White Accent
+    secondary = Color(0xFFE0E0E0),     // Soft White / Pale Silver
+    tertiary = Color(0xFF9E9E9E),      // Neutral Charcoal Gray
+    background = Color(0xFF000000),    // Pure Deep Black
+    surface = Color(0xFF121212),       // Card Surface (Carbon Dark Gray)
+    onPrimary = Color(0xFF000000),     // Solid Black Text on White Primary Buttons
+    onSecondary = Color(0xFF000000),   // Solid Black Text
+    onBackground = Color(0xFFFFFFFF),  // Crisp White Text
+    onSurface = Color(0xFFFFFFFF),     // Crisp White Cards Text
+    surfaceVariant = Color(0xFF222222),// Dark Charcoal borders
+    onSurfaceVariant = Color(0xFFFFFFFF)
   )
 
 private val MagicalDarkColorScheme = MagicalLightColorScheme
