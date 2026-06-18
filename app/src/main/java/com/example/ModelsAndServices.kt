@@ -21,6 +21,9 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -595,9 +598,561 @@ class SettingsActivity : ComponentActivity() {
 }
 
 class FloatingOverlayService : Service() {
+    private lateinit var windowManager: android.view.WindowManager
+    private lateinit var controlPanelView: android.view.View
+    private lateinit var controlPanelParams: android.view.WindowManager.LayoutParams
+    
+    private lateinit var hudPointsView: android.widget.TextView
+    private lateinit var hudStatusView: android.widget.TextView
+    private lateinit var toggleButton: android.widget.TextView
+    
+    private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob())
+    
+    private val targetViewsMap = HashMap<String, android.view.View>()
+    private val targetParamsMap = HashMap<String, android.view.WindowManager.LayoutParams>()
+    private var activeDraggingKey: String? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        return START_STICKY
+
+    override fun onCreate() {
+        super.onCreate()
+        windowManager = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+        
+        // 1. Foreground notification configuration with NotificationChannel
+        val channelId = "floating_overlay_channel"
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+                channelId,
+                "Dr.Clicker Assistant Overlay Channel",
+                android.app.NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Runs the active overlay assistant control panel"
+                enableLights(false)
+                enableVibration(false)
+            }
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            manager.createNotificationChannel(channel)
+        }
+        
+        val builder = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            android.app.Notification.Builder(this, channelId)
+        } else {
+            @Suppress("DEPRECATION")
+            android.app.Notification.Builder(this)
+        }
+        
+        val notification = builder
+            .setContentTitle("Dr.Clicker Assistant Active")
+            .setContentText("Overlay toolbar visible. Tap targets to reposition them.")
+            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setOngoing(true)
+            .build()
+            
+        startForeground(1001, notification)
+        
+        // 2. Initialize HUD Control Panel View
+        createControlPanel()
+        
+        // 3. Observe Master Activation state
+        serviceScope.launch {
+            DrClickerController.isScanning.collect { active ->
+                updateScannerStateUI(active)
+            }
+        }
+        
+        // 4. Observe Visual Target indicators
+        serviceScope.launch {
+            DrClickerController.visualTargets.collect { targets ->
+                updateOverlayTargets(targets)
+            }
+        }
+        
+        // 5. Observe Ad / Gesture points balance
+        serviceScope.launch {
+            DrClickerController.adPoints.collect { points ->
+                if (::hudPointsView.isInitialized) {
+                    hudPointsView.text = "★ Points: $points"
+                }
+            }
+        }
+    }
+
+    private fun createControlPanel() {
+        val density = resources.displayMetrics.density
+        
+        // Main LinearLayout container
+        val panel = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            setPadding((12 * density).toInt(), (14 * density).toInt(), (12 * density).toInt(), (14 * density).toInt())
+            
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 20 * density
+                setColor(android.graphics.Color.parseColor("#E60F172A")) // Translucent Galactic Midnight Custom HUD
+                setStroke((3 * density).toInt(), android.graphics.Color.parseColor("#39FF14")) // Vibrant neon-green outer border
+            }
+        }
+        
+        // Draggable HUD Header Title text
+        val titleView = android.widget.TextView(this).apply {
+            text = "✦ DR.CLICKER ✦"
+            gravity = android.view.Gravity.CENTER
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, (4 * density).toInt())
+        }
+        panel.addView(titleView)
+        
+        // Subtitle status display indicator (Active vs Paused)
+        hudStatusView = android.widget.TextView(this).apply {
+            text = "✦ PAUSED ✦"
+            gravity = android.view.Gravity.CENTER
+            setTextColor(android.graphics.Color.parseColor("#94A3B8")) // Slate gray default
+            textSize = 10f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, (10 * density).toInt())
+        }
+        panel.addView(hudStatusView)
+        
+        // Dynamic Points indicator text
+        hudPointsView = android.widget.TextView(this).apply {
+            text = "★ Points: 10"
+            gravity = android.view.Gravity.CENTER
+            setTextColor(android.graphics.Color.parseColor("#F59E0B")) // Warm Amber
+            textSize = 11f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, (12 * density).toInt())
+        }
+        panel.addView(hudPointsView)
+        
+        // Active play/pause clicker toggle
+        toggleButton = createCustomHudButton("START AUTOMATOR", android.graphics.Color.parseColor("#22C55E")) {
+            val currentState = DrClickerController.isScanning.value
+            DrClickerController.setScanning(!currentState)
+        }
+        panel.addView(toggleButton)
+        
+        // Add Tap Target trigger button
+        val addTapBtn = createCustomHudButton("+ ADD TAP", android.graphics.Color.parseColor("#1E293B")) {
+            DrClickerController.addVisualTarget(applicationContext, false)
+        }
+        panel.addView(addTapBtn)
+        
+        // Add Swipe Target trigger button
+        val addSwipeBtn = createCustomHudButton("+ ADD SWIPE", android.graphics.Color.parseColor("#1E293B")) {
+            DrClickerController.addVisualTarget(applicationContext, true)
+        }
+        panel.addView(addSwipeBtn)
+        
+        // Remove individual trailing target
+        val removeBtn = createCustomHudButton("REMOVE LAST", android.graphics.Color.parseColor("#334155")) {
+            DrClickerController.removeLastVisualTarget(applicationContext)
+        }
+        panel.addView(removeBtn)
+        
+        // Clear all target elements button
+        val clearBtn = createCustomHudButton("CLEAR ALL", android.graphics.Color.parseColor("#DC2626")) {
+            DrClickerController.clearAllVisualTargets(applicationContext)
+        }
+        panel.addView(clearBtn)
+        
+        // Divider space
+        val separator = android.view.View(this).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                (2 * density).toInt()
+            ).apply {
+                setMargins(0, (8 * density).toInt(), 0, (8 * density).toInt())
+            }
+            setBackgroundColor(android.graphics.Color.parseColor("#475569"))
+        }
+        panel.addView(separator)
+        
+        // Hide overlay buttons triggers service stop
+        val closeBtn = createCustomHudButton("❌ HIDE HUD", android.graphics.Color.TRANSPARENT, android.graphics.Color.parseColor("#EF4444")) {
+            stopSelf()
+        }
+        panel.addView(closeBtn)
+        
+        controlPanelView = panel
+        
+        // Window Layout specifications for our controller HUD
+        controlPanelParams = android.view.WindowManager.LayoutParams(
+            android.view.WindowManager.LayoutParams.WRAP_CONTENT,
+            android.view.WindowManager.LayoutParams.WRAP_CONTENT,
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                android.view.WindowManager.LayoutParams.TYPE_PHONE
+            },
+            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            android.graphics.PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            x = (20 * density).toInt()
+            y = (100 * density).toInt() // default top left area
+        }
+        
+        // Setup Drag touch handling for our controller toolbar widget
+        panel.setOnTouchListener(object : android.view.View.OnTouchListener {
+            private var initialX = 0
+            private var initialY = 0
+            private var initialTouchX = 0f
+            private var initialTouchY = 0f
+            
+            override fun onTouch(v: android.view.View, event: android.view.MotionEvent): Boolean {
+                when (event.action) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        initialX = controlPanelParams.x
+                        initialY = controlPanelParams.y
+                        initialTouchX = event.rawX
+                        initialTouchY = event.rawY
+                        return true
+                    }
+                    android.view.MotionEvent.ACTION_MOVE -> {
+                        val dx = event.rawX - initialTouchX
+                        val dy = event.rawY - initialTouchY
+                        controlPanelParams.x = initialX + dx.toInt()
+                        controlPanelParams.y = initialY + dy.toInt()
+                        try {
+                            windowManager.updateViewLayout(controlPanelView, controlPanelParams)
+                        } catch (e: Exception) {}
+                        return true
+                    }
+                }
+                return false
+            }
+        })
+        
+        try {
+            windowManager.addView(controlPanelView, controlPanelParams)
+        } catch (e: Exception) {
+            Log.e("FloatingOverlay", "Failed to add control panel overlay view: ${e.message}")
+        }
+    }
+
+    private fun createCustomHudButton(
+        textStr: String,
+        bgColor: Int,
+        textColor: Int = android.graphics.Color.WHITE,
+        onClick: () -> Unit
+    ): android.widget.TextView {
+        val density = resources.displayMetrics.density
+        return android.widget.TextView(this).apply {
+            text = textStr
+            gravity = android.view.Gravity.CENTER
+            setTextColor(textColor)
+            textSize = 10f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+            
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 10 * density
+                setColor(bgColor)
+            }
+            
+            setOnClickListener {
+                onClick()
+            }
+            
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, (4 * density).toInt(), 0, (4 * density).toInt())
+            }
+        }
+    }
+
+    private fun updateScannerStateUI(active: Boolean) {
+        if (!::hudStatusView.isInitialized || !::toggleButton.isInitialized) return
+        val density = resources.displayMetrics.density
+        if (active) {
+            hudStatusView.text = "✦ ACTIVE ✦"
+            hudStatusView.setTextColor(android.graphics.Color.parseColor("#39FF14")) // Neon Green
+            
+            toggleButton.text = "STOP AUTOMATOR"
+            toggleButton.background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 10 * density
+                setColor(android.graphics.Color.parseColor("#EF4444")) // Red
+            }
+        } else {
+            hudStatusView.text = "✦ PAUSED ✦"
+            hudStatusView.setTextColor(android.graphics.Color.parseColor("#94A3B8")) // Slate gray
+            
+            toggleButton.text = "START AUTOMATOR"
+            toggleButton.background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 10 * density
+                setColor(android.graphics.Color.parseColor("#22C55E")) // Green
+            }
+        }
+    }
+
+    private fun updateOverlayTargets(targets: List<DrClickerController.VisualTargetPoint>) {
+        val currentKeys = HashSet<String>()
+        for (target in targets) {
+            if (target.isSwipe) {
+                currentKeys.add("swipe_start_${target.id}")
+                currentKeys.add("swipe_end_${target.id}")
+            } else {
+                currentKeys.add("tap_${target.id}")
+            }
+        }
+        
+        // Remove targets that no longer exist
+        val keysToRemove = targetViewsMap.keys.filter { it !in currentKeys }
+        for (key in keysToRemove) {
+            val v = targetViewsMap[key]
+            if (v != null) {
+                try {
+                    windowManager.removeView(v)
+                } catch (e: Exception) {}
+            }
+            targetViewsMap.remove(key)
+            targetParamsMap.remove(key)
+        }
+        
+        val dm = resources.displayMetrics
+        val screenWidth = dm.widthPixels
+        val screenHeight = dm.heightPixels
+        
+        for (target in targets) {
+            if (target.isSwipe) {
+                val startKey = "swipe_start_${target.id}"
+                val endKey = "swipe_end_${target.id}"
+                
+                // 1. Swipe Start handle setup/update
+                if (startKey !in targetViewsMap) {
+                    val startView = createCircleTargetView(
+                        target.id,
+                        "S${target.id}",
+                        android.graphics.Color.parseColor("#F97316"), // Vibrant Orange
+                        startKey
+                    ) { xP, yP ->
+                        DrClickerController.updateVisualTargetPosition(applicationContext, target.id, xP, yP)
+                    }
+                    targetViewsMap[startKey] = startView
+                    val params = createOverlayParams(
+                        (target.xPercent * screenWidth).toInt(),
+                        (target.yPercent * screenHeight).toInt()
+                    )
+                    targetParamsMap[startKey] = params
+                    try {
+                        windowManager.addView(startView, params)
+                    } catch (e: Exception) {
+                        Log.e("FloatingOverlay", "Failed to add swipe start: ${e.message}")
+                    }
+                } else {
+                    if (activeDraggingKey != startKey) {
+                        val view = targetViewsMap[startKey]!!
+                        val params = targetParamsMap[startKey]!!
+                        params.x = (target.xPercent * screenWidth).toInt()
+                        params.y = (target.yPercent * screenHeight).toInt()
+                        try {
+                            windowManager.updateViewLayout(view, params)
+                        } catch (e: Exception) {}
+                    }
+                }
+                
+                // 2. Swipe End handle setup/update
+                if (endKey !in targetViewsMap) {
+                    val endView = createCircleTargetView(
+                        target.id,
+                        "E${target.id}",
+                        android.graphics.Color.parseColor("#06B6D4"), // Vibrant Cyan
+                        endKey
+                    ) { xP, yP ->
+                        DrClickerController.updateVisualTargetSwipeEndPosition(applicationContext, target.id, xP, yP)
+                    }
+                    targetViewsMap[endKey] = endView
+                    val params = createOverlayParams(
+                        (target.endXPercent * screenWidth).toInt(),
+                        (target.endYPercent * screenHeight).toInt()
+                    )
+                    targetParamsMap[endKey] = params
+                    try {
+                        windowManager.addView(endView, params)
+                    } catch (e: Exception) {
+                        Log.e("FloatingOverlay", "Failed to add swipe end: ${e.message}")
+                    }
+                } else {
+                    if (activeDraggingKey != endKey) {
+                        val view = targetViewsMap[endKey]!!
+                        val params = targetParamsMap[endKey]!!
+                        params.x = (target.endXPercent * screenWidth).toInt()
+                        params.y = (target.endYPercent * screenHeight).toInt()
+                        try {
+                            windowManager.updateViewLayout(view, params)
+                        } catch (e: Exception) {}
+                    }
+                }
+                
+            } else {
+                val tapKey = "tap_${target.id}"
+                
+                // Tap Target marker setup/update
+                if (tapKey !in targetViewsMap) {
+                    val tapView = createCircleTargetView(
+                        target.id,
+                        "T${target.id}",
+                        android.graphics.Color.parseColor("#10B981"), // Emerald Green
+                        tapKey
+                    ) { xP, yP ->
+                        DrClickerController.updateVisualTargetPosition(applicationContext, target.id, xP, yP)
+                    }
+                    targetViewsMap[tapKey] = tapView
+                    val params = createOverlayParams(
+                        (target.xPercent * screenWidth).toInt(),
+                        (target.yPercent * screenHeight).toInt()
+                    )
+                    targetParamsMap[tapKey] = params
+                    try {
+                        windowManager.addView(tapView, params)
+                    } catch (e: Exception) {
+                        Log.e("FloatingOverlay", "Failed to add tap View: ${e.message}")
+                    }
+                } else {
+                    if (activeDraggingKey != tapKey) {
+                        val view = targetViewsMap[tapKey]!!
+                        val params = targetParamsMap[tapKey]!!
+                        params.x = (target.xPercent * screenWidth).toInt()
+                        params.y = (target.yPercent * screenHeight).toInt()
+                        try {
+                            windowManager.updateViewLayout(view, params)
+                        } catch (e: Exception) {}
+                    }
+                }
+            }
+        }
+    }
+
+    private fun createCircleTargetView(
+        id: Int,
+        textStr: String,
+        circleColor: Int,
+        key: String,
+        onPositionChanged: (Float, Float) -> Unit
+    ): android.view.View {
+        val density = resources.displayMetrics.density
+        val sizePx = (40 * density).toInt()
+        
+        val frame = android.widget.FrameLayout(this).apply {
+            layoutParams = android.view.ViewGroup.LayoutParams(sizePx, sizePx)
+        }
+        
+        val circle = android.widget.TextView(this).apply {
+            text = textStr
+            gravity = android.view.Gravity.CENTER
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(circleColor)
+                setStroke((2 * density).toInt(), android.graphics.Color.WHITE)
+            }
+            
+            layoutParams = android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        
+        frame.addView(circle)
+        
+        frame.setOnTouchListener(object : android.view.View.OnTouchListener {
+            private var initialX = 0
+            private var initialY = 0
+            private var initialTouchX = 0f
+            private var initialTouchY = 0f
+            
+            override fun onTouch(v: android.view.View, event: android.view.MotionEvent): Boolean {
+                val params = targetParamsMap[key] ?: return false
+                val dm = resources.displayMetrics
+                val screenWidth = dm.widthPixels
+                val screenHeight = dm.heightPixels
+                
+                when (event.action) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        activeDraggingKey = key
+                        initialX = params.x
+                        initialY = params.y
+                        initialTouchX = event.rawX
+                        initialTouchY = event.rawY
+                        return true
+                    }
+                    android.view.MotionEvent.ACTION_MOVE -> {
+                        val dx = event.rawX - initialTouchX
+                        val dy = event.rawY - initialTouchY
+                        
+                        val newX = (initialX + dx.toInt()).coerceIn(0, screenWidth - sizePx)
+                        val newY = (initialY + dy.toInt()).coerceIn(0, screenHeight - sizePx)
+                        
+                        params.x = newX
+                        params.y = newY
+                        try {
+                            windowManager.updateViewLayout(v, params)
+                        } catch (e: Exception) {}
+                        
+                        val xPercent = newX.toFloat() / screenWidth
+                        val yPercent = newY.toFloat() / screenHeight
+                        onPositionChanged(xPercent, yPercent)
+                        return true
+                    }
+                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                        activeDraggingKey = null
+                        val xPercent = params.x.toFloat() / screenWidth
+                        val yPercent = params.y.toFloat() / screenHeight
+                        onPositionChanged(xPercent, yPercent)
+                        return true
+                    }
+                }
+                return false
+            }
+        })
+        
+        return frame
+    }
+
+    private fun createOverlayParams(xPx: Int, yPx: Int): android.view.WindowManager.LayoutParams {
+        return android.view.WindowManager.LayoutParams(
+            android.view.WindowManager.LayoutParams.WRAP_CONTENT,
+            android.view.WindowManager.LayoutParams.WRAP_CONTENT,
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                android.view.WindowManager.LayoutParams.TYPE_PHONE
+            },
+            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            android.graphics.PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            x = xPx
+            y = yPx
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        serviceScope.cancel()
+        
+        if (::controlPanelView.isInitialized) {
+            try {
+                windowManager.removeView(controlPanelView)
+            } catch (e: Exception) {}
+        }
+        
+        for (v in targetViewsMap.values) {
+            try {
+                windowManager.removeView(v)
+            } catch (e: Exception) {}
+        }
+        targetViewsMap.clear()
+        targetParamsMap.clear()
     }
 }
 

@@ -9,20 +9,20 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.graphics.Color
 import com.example.DrClickerController
 
-// Elegant high-contrast premium Black and White Monochromatic color scheme
+// Elegant high-contrast premium Slate Midnight & Cyberpunk Emerald color scheme
 private val MagicalLightColorScheme =
   lightColorScheme(
-    primary = Color(0xFFFFFFFF),       // Pure White Accent
-    secondary = Color(0xFFE0E0E0),     // Soft White / Pale Silver
-    tertiary = Color(0xFF9E9E9E),      // Neutral Charcoal Gray
-    background = Color(0xFF000000),    // Pure Deep Black
-    surface = Color(0xFF121212),       // Card Surface (Carbon Dark Gray)
-    onPrimary = Color(0xFF000000),     // Solid Black Text on White Primary Buttons
-    onSecondary = Color(0xFF000000),   // Solid Black Text
-    onBackground = Color(0xFFFFFFFF),  // Crisp White Text
-    onSurface = Color(0xFFFFFFFF),     // Crisp White Cards Text
-    surfaceVariant = Color(0xFF222222),// Dark Charcoal borders
-    onSurfaceVariant = Color(0xFFCBD5E1) // Highly visible light slate gray for secondary labels/text
+    primary = Color(0xFF00FF87),       // Radiant High-Energy Neon Green / Mint
+    secondary = Color(0xFF00E5FF),     // Vibrant Neon Cyan / Sky Blue
+    tertiary = Color(0xFFD946EF),      // Bright Tech Magenta / Purple Accent
+    background = Color(0xFF090D16),    // Super deep premium dark cosmic space navy blue
+    surface = Color(0xFF131C2E),       // Rich deep carbon surface card
+    onPrimary = Color(0xFF000000),     // Solid Black Text on Primary Neon Green
+    onSecondary = Color(0xFF000000),   // Solid Black Text on Secondary Cyan
+    onBackground = Color(0xFFF8FAFC),  // Crisp Slate White Text
+    onSurface = Color(0xFFF1F5F9),     // Crisp Slate White Card Text
+    surfaceVariant = Color(0xFF1E294B),// Deep navy border outline
+    onSurfaceVariant = Color(0xFF94A3B8) // Highly visible light slate gray for secondary labels/text
   )
 
 private val MagicalDarkColorScheme = MagicalLightColorScheme

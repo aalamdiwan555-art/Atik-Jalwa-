@@ -9296,8 +9296,8 @@ fun HelpAIChatSection(context: Context) {
         }
     }
 
-    val neonGreen = Color(0xFF5D4037)
-    val cardBg = Color(0xFFFFFFFF)
+    val neonGreen = MaterialTheme.colorScheme.primary
+    val cardBg = MaterialTheme.colorScheme.surface
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Suggested Chip rows to ease questions
