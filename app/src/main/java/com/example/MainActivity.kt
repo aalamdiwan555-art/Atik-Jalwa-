@@ -2070,6 +2070,7 @@ fun MainDashboardScreen(
 
     var active10sAdVisible by remember { mutableStateOf(false) }
     var active30sAdVisible by remember { mutableStateOf(false) }
+    var showStartupAd by remember { mutableStateOf(true) }
 
     val isScanning by DrClickerController.isScanning.collectAsState()
 
@@ -2080,16 +2081,16 @@ fun MainDashboardScreen(
             // Immediately popup a system/in-app sponsored ad when scanning initiates
             active10sAdVisible = true
             while (true) {
-                delay(40000) // Every 40 seconds loop while ride waiting is on screen!
+                delay(20000) // Every 20 seconds loop while ride waiting is on screen!
                 active10sAdVisible = true
             }
         }
     }
 
-    // Periodic general 10-second sponsor interstitial ad loop (runs background every 90 seconds)
+    // Periodic general 10-second sponsor interstitial ad loop (runs background every 35 seconds)
     LaunchedEffect(Unit) {
         while (true) {
-            delay(90000)
+            delay(35000)
             active10sAdVisible = true
         }
     }
@@ -2479,6 +2480,9 @@ fun MainDashboardScreen(
         }
 
         val activity = context as? Activity
+        if (showStartupAd) {
+            AppOpenSimulatedAdDialog(onDismiss = { showStartupAd = false })
+        }
         if (active10sAdVisible) {
             if (activity != null && AdMobManager.isInterstitialLoaded()) {
                 LaunchedEffect(active10sAdVisible) {
@@ -5094,11 +5098,10 @@ fun SubscriptionsScreenTab(
                     Button(
                         onClick = {
                             if (isQuizPassed) {
-                                // Add 100 free ride points on-the-fly and extend active license for 7 days
-                                DrClickerController.addPoints(100)
+                                // Extend active license for 7 days (points must be earned via ads in Earn Points section)
                                 AuthManager.updateUserSubscription(user.uid, System.currentTimeMillis() + 86400000L * 7L)
                                 playChime(context, true)
-                                pledgeSubmittedMessage = "Thank you! Your daily Safety Pledge has been logged as COMPLIANT. +100 Ride Click Credits have been added to your ledger. Your automated driving license is now active for the next 7 days."
+                                pledgeSubmittedMessage = "Thank you! Your daily Safety Pledge has been logged as COMPLIANT. Your automated driving license is now active for the next 7 days. To load clicker points, please use the EARN POINT ad tracker hub."
                                 q1Answer = null
                                 q2Answer = null
                                 q3Answer = null
@@ -7597,13 +7600,7 @@ fun AppOpenSimulatedAdDialog(
                         )
                     } else {
                         IconButton(
-                            onClick = {
-                                if (!earnClaimed) {
-                                    earnClaimed = true
-                                    DrClickerController.addPoints(1)
-                                }
-                                onDismiss()
-                            },
+                            onClick = onDismiss,
                             modifier = Modifier.size(24.dp)
                         ) {
                             Icon(
@@ -7648,8 +7645,8 @@ fun AppOpenSimulatedAdDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "Watching this App Open Ad awards you +1 FREE Ride Accept point!",
-                    fontSize = 10.sp,
+                    text = "High-Speed automated delivery and ride-matching background systems enabled.",
+                    fontSize = 11.sp,
                     color = Color.Gray,
                     textAlign = TextAlign.Center
                 )
@@ -7657,18 +7654,12 @@ fun AppOpenSimulatedAdDialog(
                 if (progressSeconds == 0) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
-                        onClick = {
-                            if (!earnClaimed) {
-                                earnClaimed = true
-                                DrClickerController.addPoints(1)
-                            }
-                            onDismiss()
-                        },
+                        onClick = onDismiss,
                         colors = ButtonDefaults.buttonColors(containerColor = neonGreen, contentColor = Color.Black),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth().height(42.dp)
                     ) {
-                        Text("CLAIM +1 PT & CLOSE AD", fontSize = 11.sp, fontWeight = FontWeight.Black)
+                        Text("PROCEED TO DASHBOARD", fontSize = 11.sp, fontWeight = FontWeight.Black)
                     }
                 }
             }
