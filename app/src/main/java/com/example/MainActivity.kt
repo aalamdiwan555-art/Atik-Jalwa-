@@ -3180,7 +3180,7 @@ fun DashboardContentTab(
                         label = { Text("App Name (e.g. Uber, Rapido)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("add_app_name_input"),
-                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = Color.Gray)
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor)
                     )
                     
                     OutlinedTextField(
@@ -3190,7 +3190,7 @@ fun DashboardContentTab(
                         placeholder = { Text("e.g. ACCEPT, START, RIDE") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("add_app_btn_input"),
-                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = Color.Gray)
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor)
                     )
                     
                     OutlinedTextField(
@@ -3200,7 +3200,7 @@ fun DashboardContentTab(
                         placeholder = { Text("e.g. Cash, Pre-Paid") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("add_app_kws_input"),
-                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = Color.Gray)
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor)
                     )
 
                     QuickTemplateKeywordsSection(
@@ -3337,7 +3337,7 @@ fun DashboardContentTab(
                         label = { Text("Accept Button Keywords (comma split)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("edit_app_btn_input"),
-                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = Color.Gray)
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor)
                     )
                     
                     OutlinedTextField(
@@ -3347,7 +3347,7 @@ fun DashboardContentTab(
                         placeholder = { Text("Accepts anything if empty") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("edit_app_kws_input"),
-                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = Color.Gray)
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = textColor, unfocusedTextColor = textColor)
                     )
 
                     QuickTemplateKeywordsSection(
@@ -4390,7 +4390,7 @@ fun DriverProfileScreen(
         Text(
             text = user.email,
             fontSize = 18.sp,
-            color = Color(0xFF0F172A),
+            color = Color.White,
             fontWeight = FontWeight.Black
         )
         Spacer(modifier = Modifier.height(4.dp))
@@ -4414,7 +4414,7 @@ fun DriverProfileScreen(
         // Statistics Grid
         Text(
             text = "AUTOMATION STATISTICS & LOGS",
-            color = Color(0xFF0F172A),
+            color = Color.White,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp)
@@ -4431,7 +4431,7 @@ fun DriverProfileScreen(
                 border = BorderStroke(1.dp, Color.DarkGray)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    Text("Auto-Shifts Done", fontSize = 10.sp, color = Color.Gray)
+                    Text("Auto-Shifts Done", fontSize = 10.sp, color = Color(0xFF94A3B8))
                     Text("142", fontSize = 20.sp, color = neonGreen, fontWeight = FontWeight.Black)
                     Text("Shifts optimized", fontSize = 8.sp, color = Color.LightGray)
                 }
@@ -4443,8 +4443,8 @@ fun DriverProfileScreen(
                 border = BorderStroke(1.dp, Color.DarkGray)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    Text("Taps Completed", fontSize = 10.sp, color = Color.Gray)
-                    Text("1,840", fontSize = 20.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.Black)
+                    Text("Taps Completed", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                    Text("1,840", fontSize = 20.sp, color = Color.White, fontWeight = FontWeight.Black)
                     Text("High-speed clicks", fontSize = 8.sp, color = Color.LightGray)
                 }
             }
@@ -4463,8 +4463,8 @@ fun DriverProfileScreen(
                 border = BorderStroke(1.dp, Color.DarkGray)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    Text("Estimated Saved Time", fontSize = 10.sp, color = Color.Gray)
-                    Text("28.5 Hrs", fontSize = 20.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.Black)
+                    Text("Estimated Saved Time", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                    Text("28.5 Hrs", fontSize = 20.sp, color = Color.White, fontWeight = FontWeight.Black)
                     Text("Over active shifts", fontSize = 8.sp, color = Color.LightGray)
                 }
             }
@@ -4475,7 +4475,7 @@ fun DriverProfileScreen(
                 border = BorderStroke(1.dp, Color.DarkGray)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    Text("Bypassed Alerts", fontSize = 10.sp, color = Color.Gray)
+                    Text("Bypassed Alerts", fontSize = 10.sp, color = Color(0xFF94A3B8))
                     Text("38", fontSize = 20.sp, color = neonGreen, fontWeight = FontWeight.Black)
                     Text("Frictionless login", fontSize = 8.sp, color = Color.LightGray)
                 }
@@ -4506,8 +4506,8 @@ fun DriverProfileScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("Driver User UID", fontSize = 11.sp, color = Color.Gray)
-                        Text(user.uid, fontSize = 11.sp, color = Color(0xFF0F172A), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                        Text("Driver User UID", fontSize = 11.sp, color = Color(0xFF94A3B8))
+                        Text(user.uid, fontSize = 11.sp, color = Color.White, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                     }
                 }
                 

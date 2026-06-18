@@ -22,7 +22,7 @@ private val MagicalLightColorScheme =
     onBackground = Color(0xFFFFFFFF),  // Crisp White Text
     onSurface = Color(0xFFFFFFFF),     // Crisp White Cards Text
     surfaceVariant = Color(0xFF222222),// Dark Charcoal borders
-    onSurfaceVariant = Color(0xFFFFFFFF)
+    onSurfaceVariant = Color(0xFFCBD5E1) // Highly visible light slate gray for secondary labels/text
   )
 
 private val MagicalDarkColorScheme = MagicalLightColorScheme
